@@ -1,0 +1,10 @@
+defaults:
+  postedLimit: "24h"
+  sortBy: "date"
+
+queries:
+  - '("AI enablement" OR "applied AI") hiring'
+  - '"founder''s office" "applied AI"'
+  - '"AI transformation" (manager OR lead) hiring'
+  - '("GTM engineer" OR "AI automation") hiring'
+  - '"applied AI" (automation OR agents) hiring'
