@@ -6,6 +6,7 @@ Run locally: python -m src.digest.main
 import logging
 import os
 import sys
+from collections.abc import Iterable
 from datetime import date
 
 from dotenv import load_dotenv
@@ -22,10 +23,34 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 
 SEND_ON_EMPTY = os.environ.get("SEND_ON_EMPTY", "false").lower() == "true"
+REQUIRED_ENV_VARS = (
+    "APIFY_TOKEN",
+    "ANTHROPIC_API_KEY",
+    "SUPABASE_URL",
+    "SUPABASE_KEY",
+    "SMTP_HOST",
+    "SMTP_PORT",
+    "SMTP_USER",
+    "SMTP_PASS",
+    "EMAIL_TO",
+)
+
+
+def require_env(names: Iterable[str] = REQUIRED_ENV_VARS) -> None:
+    missing = [name for name in names if not os.environ.get(name)]
+    if not missing:
+        return
+
+    joined = ", ".join(missing)
+    raise SystemExit(
+        "Missing required environment variable(s): "
+        f"{joined}. Add them as GitHub Actions repository secrets, then re-run the workflow."
+    )
 
 
 def main() -> None:
     load_dotenv()
+    require_env()
     apify_token = os.environ["APIFY_TOKEN"]
 
     log.info("=== AI Role Digest starting ===")

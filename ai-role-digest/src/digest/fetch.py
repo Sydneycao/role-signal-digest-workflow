@@ -63,6 +63,19 @@ def _normalize(item: dict) -> Post | None:
     )
 
 
+def _default_dataset_id(run: object) -> str:
+    if isinstance(run, dict):
+        dataset_id = run.get("defaultDatasetId")
+    else:
+        dataset_id = getattr(run, "default_dataset_id", None) or getattr(
+            run, "defaultDatasetId", None
+        )
+
+    if not dataset_id:
+        raise RuntimeError("Apify run did not include a default dataset ID")
+    return dataset_id
+
+
 def fetch_posts(apify_token: str, config_path: str = "config/queries.yaml") -> list[Post]:
     cfg = _load_config(config_path)
     defaults = cfg.get("defaults", {})
@@ -82,7 +95,7 @@ def fetch_posts(apify_token: str, config_path: str = "config/queries.yaml") -> l
         }
         log.info("Apify query: %r", query)
         run = client.actor(ACTOR_ID).call(run_input=run_input)
-        items = list(client.dataset(run["defaultDatasetId"]).iterate_items())
+        items = list(client.dataset(_default_dataset_id(run)).iterate_items())
         log.info("  → %d raw items", len(items))
 
         for item in items:

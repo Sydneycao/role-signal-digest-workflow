@@ -8,6 +8,9 @@ import json
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+
+from src.digest.main import require_env
 from src.digest.models import Post
 from src.digest.score import _ScoreResult, score_and_filter
 
@@ -83,3 +86,16 @@ def test_score_and_filter_all_below_threshold():
         result = score_and_filter(posts)
 
     assert result == []
+
+
+def test_require_env_reports_empty_github_secret(monkeypatch):
+    monkeypatch.setenv("APIFY_TOKEN", "")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "anthropic-key")
+
+    with pytest.raises(SystemExit) as exc:
+        require_env(("APIFY_TOKEN", "ANTHROPIC_API_KEY"))
+
+    message = str(exc.value)
+    assert "APIFY_TOKEN" in message
+    assert "ANTHROPIC_API_KEY" not in message
+    assert "GitHub Actions repository secrets" in message

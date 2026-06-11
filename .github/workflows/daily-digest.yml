@@ -20,10 +20,10 @@ jobs:
             echo "run_digest=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         if: steps.local_time.outputs.run_digest == 'true'
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         if: steps.local_time.outputs.run_digest == 'true'
         with:
           python-version: "3.11"
