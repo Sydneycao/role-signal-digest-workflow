@@ -27,17 +27,19 @@ REQUIRED_ENV_VARS = (
     "APIFY_TOKEN",
     "ANTHROPIC_API_KEY",
     "SUPABASE_URL",
-    "SUPABASE_KEY",
     "SMTP_HOST",
     "SMTP_PORT",
     "SMTP_USER",
     "SMTP_PASS",
     "EMAIL_TO",
 )
+SUPABASE_KEY_ENV_VARS = ("SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_KEY")
 
 
 def require_env(names: Iterable[str] = REQUIRED_ENV_VARS) -> None:
     missing = [name for name in names if not os.environ.get(name)]
+    if not any(os.environ.get(name) for name in SUPABASE_KEY_ENV_VARS):
+        missing.append("SUPABASE_SERVICE_ROLE_KEY (recommended) or SUPABASE_KEY")
     if not missing:
         return
 
