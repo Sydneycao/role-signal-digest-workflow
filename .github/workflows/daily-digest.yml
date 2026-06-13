@@ -4,7 +4,8 @@ on:
   schedule:
     # GitHub cron runs in UTC. Trigger at both possible UTC hours and gate below
     # so the digest runs at 8:00 AM America/New_York across DST changes.
-    - cron: "0 12,13 * * *"
+    - cron: "0 12 * * *"
+    - cron: "0 13 * * *"
   workflow_dispatch:
 
 jobs:
@@ -14,7 +15,11 @@ jobs:
       - name: Check local send time
         id: local_time
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] || [ "$(TZ=America/New_York date +%H)" = "08" ]; then
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "run_digest=true" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event.schedule }}" = "0 12 * * *" ] && [ "$(TZ=America/New_York date -d '12:00 UTC' +%H)" = "08" ]; then
+            echo "run_digest=true" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event.schedule }}" = "0 13 * * *" ] && [ "$(TZ=America/New_York date -d '13:00 UTC' +%H)" = "08" ]; then
             echo "run_digest=true" >> "$GITHUB_OUTPUT"
           else
             echo "run_digest=false" >> "$GITHUB_OUTPUT"
