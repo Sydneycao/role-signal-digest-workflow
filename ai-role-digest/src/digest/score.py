@@ -19,10 +19,54 @@ from .models import Post, ScoredPost
 
 log = logging.getLogger(__name__)
 
-CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL", "claude-sonnet-4-6")
+CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL", "claude-haiku-4-5")
 SCORE_THRESHOLD = int(os.environ.get("SCORE_THRESHOLD", "7"))
 MAX_CONCURRENT = 5
 RUBRIC_PATH = Path("config/rubric.md")
+
+HIRING_TERMS = (
+    "hiring",
+    "we're looking",
+    "we are looking",
+    "looking for",
+    "join our",
+    "opening",
+    "open role",
+    "role",
+    "position",
+    "apply",
+)
+TARGET_TERMS = (
+    "ai enablement",
+    "applied ai",
+    "ai transformation",
+    "ai automation",
+    "internal ai",
+    "internal tooling",
+    "gtm engineer",
+    "automation",
+    "automations",
+    "agent",
+    "agents",
+    "llm",
+    "llms",
+    "workflow",
+    "founder's office",
+)
+REJECT_TERMS = (
+    "account executive",
+    "applied scientist",
+    "director",
+    "machine learning research",
+    "ml research",
+    "phd",
+    "postdoc",
+    "principal scientist",
+    "research scientist",
+    "sales executive",
+    "solutions engineer",
+    "vice president",
+)
 
 
 class _ScoreResult(BaseModel):
@@ -35,6 +79,21 @@ class _ScoreResult(BaseModel):
 
 def _rubric() -> str:
     return RUBRIC_PATH.read_text()
+
+
+def _prefilter_posts(posts: list[Post]) -> list[Post]:
+    kept: list[Post] = []
+    for post in posts:
+        post_text = post.text.lower()
+        context = f"{post.author_headline}\n{post.text}".lower()
+        has_hiring_signal = any(term in post_text for term in HIRING_TERMS)
+        has_target_signal = any(term in context for term in TARGET_TERMS)
+        has_reject_signal = any(term in post_text for term in REJECT_TERMS)
+        if has_hiring_signal and has_target_signal and not has_reject_signal:
+            kept.append(post)
+
+    log.info("prefilter: %d posts -> %d plausible posts", len(posts), len(kept))
+    return kept
 
 
 async def _score_one(
@@ -88,11 +147,13 @@ async def _score_all(posts: list[Post]) -> list[ScoredPost]:
 
 
 def score_and_filter(posts: list[Post]) -> list[ScoredPost]:
-    scored = asyncio.run(_score_all(posts))
+    candidates = _prefilter_posts(posts)
+    scored = asyncio.run(_score_all(candidates))
     kept = [s for s in scored if s.score >= SCORE_THRESHOLD]
     log.info(
-        "scoring: %d posts → %d scored → %d above threshold %d",
+        "scoring: %d posts → %d candidates → %d scored → %d above threshold %d",
         len(posts),
+        len(candidates),
         len(scored),
         len(kept),
         SCORE_THRESHOLD,

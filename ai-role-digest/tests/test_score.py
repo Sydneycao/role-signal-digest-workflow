@@ -12,7 +12,7 @@ import pytest
 
 from src.digest.main import require_env
 from src.digest.models import Post
-from src.digest.score import _ScoreResult, score_and_filter
+from src.digest.score import CLAUDE_MODEL, _prefilter_posts, _ScoreResult, score_and_filter
 
 FIXTURES = Path(__file__).parent / "fixtures" / "sample_posts.json"
 
@@ -39,7 +39,6 @@ def test_score_and_filter_keeps_high_scores():
 
     responses = [
         _mock_response(9, "Alice Founder", "https://www.linkedin.com/in/alice-founder"),
-        _mock_response(3, "Bob Recruiter", "https://www.linkedin.com/in/bob-recruiter"),
         _mock_response(8, "Carol Ops", "https://www.linkedin.com/in/carol-ops"),
     ]
 
@@ -62,11 +61,41 @@ def test_score_and_filter_keeps_high_scores():
     assert "post_abc123" in scores
     assert "post_ghi789" in scores
     assert "post_def456" not in scores
+    assert mock_client.messages.parse.await_count == 2
 
 
 def test_score_and_filter_empty_input():
     result = score_and_filter([])
     assert result == []
+
+
+def test_prefilter_rejects_obvious_sales_role():
+    posts = [
+        Post(
+            id="sales",
+            url="https://www.linkedin.com/posts/sales",
+            text="We are hiring an account executive to sell our AI automation platform.",
+            author_name="Sales Recruiter",
+            author_headline="Recruiter",
+            author_url="https://www.linkedin.com/in/sales",
+        ),
+        Post(
+            id="applied-ai",
+            url="https://www.linkedin.com/posts/applied-ai",
+            text="We are hiring an applied AI engineer to build internal automations.",
+            author_name="Founder",
+            author_headline="Founder",
+            author_url="https://www.linkedin.com/in/founder",
+        ),
+    ]
+
+    kept = _prefilter_posts(posts)
+
+    assert [post.id for post in kept] == ["applied-ai"]
+
+
+def test_default_model_is_haiku():
+    assert CLAUDE_MODEL == "claude-haiku-4-5"
 
 
 def test_score_and_filter_all_below_threshold():
