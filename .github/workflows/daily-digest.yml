@@ -53,4 +53,5 @@ jobs:
           SMTP_USER: ${{ secrets.SMTP_USER }}
           SMTP_PASS: ${{ secrets.SMTP_PASS }}
           EMAIL_TO: ${{ secrets.EMAIL_TO }}
+          FEEDBACK_BASE_URL: ${{ secrets.FEEDBACK_BASE_URL }}
         run: python -m src.digest.main
