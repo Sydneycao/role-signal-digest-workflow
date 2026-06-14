@@ -21,6 +21,13 @@ _TEMPLATE = """\
   .reason{font-size:.9rem;color:#444;margin:8px 0}
   .links a{font-size:.85rem;color:#1a73e8;text-decoration:none;margin-right:12px}
   .links a:hover{text-decoration:underline}
+  .draft{border-top:1px solid #eee;margin-top:14px;padding-top:14px}
+  .draft h2{font-size:1rem;margin:0 0 10px}
+  .draft h3{font-size:.8rem;letter-spacing:.02em;text-transform:uppercase;
+            color:#666;margin:12px 0 6px}
+  .message{background:#f8f9fa;border:1px solid #eceff3;border-radius:6px;
+           padding:10px 12px;font-size:.9rem;line-height:1.45;white-space:pre-wrap}
+  .count{font-size:.75rem;color:#777;margin:4px 0 0}
 </style>
 </head>
 <body>
@@ -34,13 +41,24 @@ _TEMPLATE = """\
     <a href="{{ s.post.url }}" target="_blank">View post</a>
     <a href="{{ s.poster_url }}" target="_blank">Reach out → {{ s.poster_name }}</a>
   </div>
+  {% if s.outreach %}
+  <div class="draft">
+    <h2>{{ s.outreach.title }}</h2>
+    <h3>Connection request</h3>
+    <div class="message">{{ s.outreach.connection_request }}</div>
+    <p class="count">{{ s.outreach.connection_request|length }}/200 characters</p>
+    <h3>Direct message</h3>
+    <div class="message">{{ s.outreach.direct_message }}</div>
+    <p class="count">{{ s.outreach.direct_message|length }}/8,000 characters</p>
+  </div>
+  {% endif %}
 </div>
 {% endfor %}
 </body>
 </html>
 """
 
-_env = Environment(loader=BaseLoader())
+_env = Environment(loader=BaseLoader(), autoescape=True)
 _tmpl = _env.from_string(_TEMPLATE)
 
 

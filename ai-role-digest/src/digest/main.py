@@ -13,6 +13,7 @@ from dotenv import load_dotenv
 
 from .emailer import send
 from .fetch import fetch_posts
+from .outreach import draft_reach_out
 from .render import render
 from .score import score_and_filter
 from .store import filter_unseen, mark_seen
@@ -71,6 +72,9 @@ def main() -> None:
 
     scored = score_and_filter(fresh)
     log.info("stage score: %d posts above threshold", len(scored))
+
+    scored = draft_reach_out(scored)
+    log.info("stage outreach: %d posts drafted", len(scored))
 
     mark_seen(fresh)
 

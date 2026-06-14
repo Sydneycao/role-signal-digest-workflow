@@ -16,6 +16,12 @@ class Post(BaseModel):
     posted_at: Optional[datetime] = None
 
 
+class OutreachDraft(BaseModel):
+    title: str
+    connection_request: str
+    direct_message: str
+
+
 class ScoredPost(BaseModel):
     post: Post
     score: int
@@ -23,3 +29,4 @@ class ScoredPost(BaseModel):
     reason: str
     poster_name: str
     poster_url: str
+    outreach: Optional[OutreachDraft] = None
