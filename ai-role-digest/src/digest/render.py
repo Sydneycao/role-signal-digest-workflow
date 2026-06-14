@@ -1,3 +1,6 @@
+import os
+from urllib.parse import urlencode
+
 from jinja2 import BaseLoader, Environment
 
 from .models import ScoredPost
@@ -21,6 +24,11 @@ _TEMPLATE = """\
   .reason{font-size:.9rem;color:#444;margin:8px 0}
   .links a{font-size:.85rem;color:#1a73e8;text-decoration:none;margin-right:12px}
   .links a:hover{text-decoration:underline}
+  .feedback{margin-top:14px}
+  .feedback a{display:inline-block;border:1px solid #dadce0;border-radius:6px;
+              padding:6px 10px;font-size:.82rem;color:#1a73e8;text-decoration:none;
+              margin-right:8px}
+  .feedback a:hover{background:#f8fafd}
   .draft{border-top:1px solid #eee;margin-top:14px;padding-top:14px}
   .draft h2{font-size:1rem;margin:0 0 10px}
   .draft h3{font-size:.8rem;letter-spacing:.02em;text-transform:uppercase;
@@ -41,6 +49,12 @@ _TEMPLATE = """\
     <a href="{{ s.post.url }}" target="_blank">View post</a>
     <a href="{{ s.poster_url }}" target="_blank">Reach out → {{ s.poster_name }}</a>
   </div>
+  {% if s.feedback %}
+  <div class="feedback">
+    <a href="{{ s.feedback.good }}" target="_blank">Good</a>
+    <a href="{{ s.feedback.add_feedback }}" target="_blank">Add feedback</a>
+  </div>
+  {% endif %}
   {% if s.outreach %}
   <div class="draft">
     <h2>{{ s.outreach.title }}</h2>
@@ -62,6 +76,39 @@ _env = Environment(loader=BaseLoader(), autoescape=True)
 _tmpl = _env.from_string(_TEMPLATE)
 
 
+def _feedback_links(scored: ScoredPost, base_url: str) -> dict[str, str] | None:
+    if not base_url:
+        return None
+
+    title = scored.outreach.title if scored.outreach else f"LinkedIn post by {scored.poster_name}"
+    common = {
+        "post_id": scored.post.id,
+        "post_url": scored.post.url,
+        "title": title,
+    }
+    return {
+        "good": f"{base_url}?{urlencode({**common, 'action': 'good'})}",
+        "add_feedback": f"{base_url}?{urlencode({**common, 'action': 'add_feedback'})}",
+    }
+
+
+def _feedback_base_url() -> str:
+    return os.environ.get("FEEDBACK_BASE_URL", "").strip()
+
+
 def render(scored: list[ScoredPost]) -> str:
     top = sorted(scored, key=lambda s: s.score, reverse=True)[:MAX_RESULTS]
-    return _tmpl.render(posts=top)
+    feedback_base_url = _feedback_base_url()
+    posts = [
+        {
+            "post": item.post,
+            "score": item.score,
+            "reason": item.reason,
+            "poster_name": item.poster_name,
+            "poster_url": item.poster_url,
+            "outreach": item.outreach,
+            "feedback": _feedback_links(item, feedback_base_url),
+        }
+        for item in top
+    ]
+    return _tmpl.render(posts=posts)

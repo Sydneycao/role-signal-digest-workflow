@@ -82,3 +82,17 @@ def test_render_includes_outreach_blocks():
     assert "Direct message" in html
     assert "/200 characters" in html
     assert scored.outreach.connection_request in html
+
+
+def test_render_includes_simple_feedback_links(monkeypatch):
+    monkeypatch.setenv("FEEDBACK_BASE_URL", "https://feedback.example/role")
+    scored = _scored_post()
+    scored.outreach = _fallback_draft(scored)
+
+    html = render([scored])
+
+    assert "Good" in html
+    assert "Add feedback" in html
+    assert "action=good" in html
+    assert "action=add_feedback" in html
+    assert "post_id=post_123" in html
