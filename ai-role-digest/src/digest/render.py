@@ -76,8 +76,10 @@ _env = Environment(loader=BaseLoader(), autoescape=True)
 _tmpl = _env.from_string(_TEMPLATE)
 
 
-def _feedback_links(scored: ScoredPost, base_url: str) -> dict[str, str] | None:
-    if not base_url:
+def _feedback_links(
+    scored: ScoredPost, api_url: str, form_url: str
+) -> dict[str, str] | None:
+    if not api_url:
         return None
 
     title = scored.outreach.title if scored.outreach else f"LinkedIn post by {scored.poster_name}"
@@ -86,9 +88,14 @@ def _feedback_links(scored: ScoredPost, base_url: str) -> dict[str, str] | None:
         "post_url": scored.post.url,
         "title": title,
     }
+    form_params = {**common, "api_url": api_url}
     return {
-        "good": f"{base_url}?{urlencode({**common, 'action': 'good'})}",
-        "add_feedback": f"{base_url}?{urlencode({**common, 'action': 'add_feedback'})}",
+        "good": f"{api_url}?{urlencode({**common, 'action': 'good'})}",
+        "add_feedback": (
+            f"{form_url}?{urlencode(form_params)}"
+            if form_url
+            else f"{api_url}?{urlencode({**common, 'action': 'add_feedback'})}"
+        ),
     }
 
 
@@ -96,9 +103,14 @@ def _feedback_base_url() -> str:
     return os.environ.get("FEEDBACK_BASE_URL", "").strip()
 
 
+def _feedback_form_url() -> str:
+    return os.environ.get("FEEDBACK_FORM_URL", "").strip()
+
+
 def render(scored: list[ScoredPost]) -> str:
     top = sorted(scored, key=lambda s: s.score, reverse=True)[:MAX_RESULTS]
     feedback_base_url = _feedback_base_url()
+    feedback_form_url = _feedback_form_url()
     posts = [
         {
             "post": item.post,
@@ -107,7 +119,7 @@ def render(scored: list[ScoredPost]) -> str:
             "poster_name": item.poster_name,
             "poster_url": item.poster_url,
             "outreach": item.outreach,
-            "feedback": _feedback_links(item, feedback_base_url),
+            "feedback": _feedback_links(item, feedback_base_url, feedback_form_url),
         }
         for item in top
     ]

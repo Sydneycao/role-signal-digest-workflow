@@ -2,43 +2,40 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+const FEEDBACK_FORM_URL = Deno.env.get("FEEDBACK_FORM_URL") ?? "";
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-function escapeHtml(value: string): string {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+};
+
+function text(body: string, status = 200): Response {
+  return new Response(body, {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "text/plain; charset=utf-8" },
+  });
 }
 
-function html(body: string, status = 200): Response {
-  const headers = new Headers();
-  headers.set("Content-Type", "application/xhtml+xml; charset=utf-8");
+function json(body: Record<string, unknown>, status = 200): Response {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json; charset=utf-8" },
+  });
+}
 
-  return new Response(
-    `<!doctype html>
-<html xmlns="http://www.w3.org/1999/xhtml" lang="en">
-<head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Role Feedback</title>
-<style>
-  body{font-family:system-ui,sans-serif;max-width:640px;margin:40px auto;padding:0 16px;color:#222}
-  h1{font-size:1.25rem;margin-bottom:8px}
-  .muted{color:#666;font-size:.9rem}
-  textarea{box-sizing:border-box;width:100%;min-height:180px;margin:12px 0;padding:10px;
-           font:inherit;border:1px solid #d0d7de;border-radius:6px}
-  button{background:#1a73e8;color:#fff;border:0;border-radius:6px;padding:9px 14px;font:inherit}
-  a{color:#1a73e8}
-</style>
-</head>
-<body>${body}</body>
-</html>`,
-    { status, headers },
-  );
+function feedbackFormUrl(apiUrl: URL): string {
+  const formUrl = new URL(FEEDBACK_FORM_URL);
+  for (const key of ["post_id", "post_url", "title"]) {
+    const value = apiUrl.searchParams.get(key);
+    if (value) {
+      formUrl.searchParams.set(key, value);
+    }
+  }
+  formUrl.searchParams.set("api_url", `${apiUrl.origin}${apiUrl.pathname}`);
+  return formUrl.toString();
 }
 
 async function saveFeedback(payload: {
@@ -54,20 +51,16 @@ async function saveFeedback(payload: {
   }
 
   console.error("Failed to save role feedback", error);
-  return html(
-    `<h1>Could not save feedback</h1>
-<p class="muted">Please try again later.</p>`,
-    500,
-  );
+  return json({ ok: false, error: "Could not save feedback" }, 500);
 }
 
 Deno.serve(async (req: Request) => {
+  if (req.method === "OPTIONS") {
+    return new Response("ok", { headers: corsHeaders });
+  }
+
   if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
-    return html(
-      `<h1>Feedback is not configured</h1>
-<p class="muted">Missing Supabase environment variables.</p>`,
-      500,
-    );
+    return json({ ok: false, error: "Feedback is not configured" }, 500);
   }
 
   const url = new URL(req.url);
@@ -79,7 +72,7 @@ Deno.serve(async (req: Request) => {
     const title = url.searchParams.get("title") ?? "LinkedIn role";
 
     if (!post_id) {
-      return html("<h1>Missing post ID</h1>", 400);
+      return text("Missing post ID", 400);
     }
 
     if (action === "good") {
@@ -92,36 +85,40 @@ Deno.serve(async (req: Request) => {
       if (errorResponse) {
         return errorResponse;
       }
-      return html(
-        `<h1>Saved: Good</h1>
-<p class="muted">The workflow will treat this as a positive signal.</p>`,
-      );
+      return text("Saved: Good");
     }
 
     if (action === "add_feedback") {
-      return html(
-        `<h1>Add feedback</h1>
-<p class="muted">${escapeHtml(title)}</p>
-<form method="post">
-  <input type="hidden" name="post_id" value="${escapeHtml(post_id)}" />
-  <input type="hidden" name="post_url" value="${escapeHtml(post_url)}" />
-  <input type="hidden" name="title" value="${escapeHtml(title)}" />
-  <textarea name="note" required="required" autofocus="autofocus" placeholder="Why is this result not good?"></textarea>
-  <button type="submit">Save feedback</button>
-</form>`,
-      );
+      if (FEEDBACK_FORM_URL) {
+        return Response.redirect(feedbackFormUrl(url), 303);
+      }
+      return text("Feedback form URL is not configured", 500);
     }
   }
 
   if (req.method === "POST") {
-    const form = await req.formData();
-    const post_id = String(form.get("post_id") ?? "");
-    const post_url = String(form.get("post_url") ?? "");
-    const title = String(form.get("title") ?? "LinkedIn role");
-    const note = String(form.get("note") ?? "").trim();
+    const contentType = req.headers.get("content-type") ?? "";
+    let post_id = "";
+    let post_url = "";
+    let title = "LinkedIn role";
+    let note = "";
+
+    if (contentType.includes("application/json")) {
+      const body = await req.json();
+      post_id = String(body.post_id ?? "");
+      post_url = String(body.post_url ?? "");
+      title = String(body.title ?? title);
+      note = String(body.note ?? "").trim();
+    } else {
+      const form = await req.formData();
+      post_id = String(form.get("post_id") ?? "");
+      post_url = String(form.get("post_url") ?? "");
+      title = String(form.get("title") ?? title);
+      note = String(form.get("note") ?? "").trim();
+    }
 
     if (!post_id || !note) {
-      return html("<h1>Missing feedback</h1>", 400);
+      return json({ ok: false, error: "Missing feedback" }, 400);
     }
 
     const errorResponse = await saveFeedback({
@@ -135,11 +132,8 @@ Deno.serve(async (req: Request) => {
       return errorResponse;
     }
 
-    return html(
-      `<h1>Feedback saved</h1>
-<p class="muted">Thanks. This note can be used to tune the scoring rubric.</p>`,
-    );
+    return json({ ok: true, message: "Feedback saved" });
   }
 
-  return html("<h1>Not found</h1>", 404);
+  return text("Not found", 404);
 });

@@ -85,7 +85,8 @@ def test_render_includes_outreach_blocks():
 
 
 def test_render_includes_simple_feedback_links(monkeypatch):
-    monkeypatch.setenv("FEEDBACK_BASE_URL", "https://feedback.example/role")
+    monkeypatch.setenv("FEEDBACK_BASE_URL", "https://feedback.example/api")
+    monkeypatch.setenv("FEEDBACK_FORM_URL", "https://pages.example/feedback.html")
     scored = _scored_post()
     scored.outreach = _fallback_draft(scored)
 
@@ -94,5 +95,6 @@ def test_render_includes_simple_feedback_links(monkeypatch):
     assert "Good" in html
     assert "Add feedback" in html
     assert "action=good" in html
-    assert "action=add_feedback" in html
+    assert "pages.example/feedback.html" in html
+    assert "api_url=https%3A%2F%2Ffeedback.example%2Fapi" in html
     assert "post_id=post_123" in html
