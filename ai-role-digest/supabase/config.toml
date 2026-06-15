@@ -1,0 +1,2 @@
+[functions.role-feedback]
+verify_jwt = false
