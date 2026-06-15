@@ -16,14 +16,14 @@ function escapeHtml(value: string): string {
 
 function html(body: string, status = 200): Response {
   const headers = new Headers();
-  headers.set("Content-Type", "text/html; charset=utf-8");
+  headers.set("Content-Type", "application/xhtml+xml; charset=utf-8");
 
   return new Response(
     `<!doctype html>
-<html lang="en">
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
 <title>Role Feedback</title>
 <style>
   body{font-family:system-ui,sans-serif;max-width:640px;margin:40px auto;padding:0 16px;color:#222}
@@ -103,10 +103,10 @@ Deno.serve(async (req: Request) => {
         `<h1>Add feedback</h1>
 <p class="muted">${escapeHtml(title)}</p>
 <form method="post">
-  <input type="hidden" name="post_id" value="${escapeHtml(post_id)}">
-  <input type="hidden" name="post_url" value="${escapeHtml(post_url)}">
-  <input type="hidden" name="title" value="${escapeHtml(title)}">
-  <textarea name="note" required autofocus placeholder="Why is this result not good?"></textarea>
+  <input type="hidden" name="post_id" value="${escapeHtml(post_id)}" />
+  <input type="hidden" name="post_url" value="${escapeHtml(post_url)}" />
+  <input type="hidden" name="title" value="${escapeHtml(title)}" />
+  <textarea name="note" required="required" autofocus="autofocus" placeholder="Why is this result not good?"></textarea>
   <button type="submit">Save feedback</button>
 </form>`,
       );
