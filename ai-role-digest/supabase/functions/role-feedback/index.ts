@@ -15,6 +15,9 @@ function escapeHtml(value: string): string {
 }
 
 function html(body: string, status = 200): Response {
+  const headers = new Headers();
+  headers.set("Content-Type", "text/html; charset=utf-8");
+
   return new Response(
     `<!doctype html>
 <html lang="en">
@@ -34,7 +37,7 @@ function html(body: string, status = 200): Response {
 </head>
 <body>${body}</body>
 </html>`,
-    { status, headers: { "content-type": "text/html; charset=utf-8" } },
+    { status, headers },
   );
 }
 
