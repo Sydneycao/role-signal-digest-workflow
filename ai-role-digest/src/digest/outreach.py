@@ -26,12 +26,11 @@ CONNECTION_REQUEST_LIMIT = 200
 DIRECT_MESSAGE_LIMIT = 8000
 
 DEFAULT_CANDIDATE_BACKGROUND = (
-    "I am currently a Data Scientist at Publicis Health with about two years of "
-    "experience. Recently I built an internal multi-agent platform using Copilot "
-    "Studio, Power Automate, and Salesforce to automate parts of the BD workflow "
-    "for non-technical teams. I have also built n8n pipelines and side projects "
-    "around AI daily digests, job search automation, and modernizing the digital "
-    "experience for a Chinese art and humanities research organization."
+    "I am a candidate with relevant experience for this role. Recently, I have "
+    "worked on projects that connect technical execution with practical business "
+    "needs, including automation, internal tooling, data workflows, and user-facing "
+    "improvements. I am especially interested in roles where I can ship useful "
+    "systems end to end and learn quickly from real users."
 )
 
 SYSTEM_PROMPT = f"""\
