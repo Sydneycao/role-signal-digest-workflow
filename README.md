@@ -1,4 +1,4 @@
-# Role Digest Agent
+# Role Signal Digest Workflow
 
 Automated role discovery, fit scoring, outreach drafting, and feedback tracking.
 
@@ -119,7 +119,7 @@ It creates:
 Deploy the feedback Edge Function:
 
 ```bash
-cd /path/to/role-digest-agent/ai-role-digest
+cd /path/to/role-signal-digest-workflow/ai-role-digest
 npx supabase@latest functions deploy role-feedback --project-ref <project-ref>
 ```
 
@@ -148,7 +148,7 @@ Then set GitHub secret `FEEDBACK_FORM_URL` to the published page URL.
 ## Running Locally
 
 ```bash
-cd /path/to/role-digest-agent/ai-role-digest
+cd /path/to/role-signal-digest-workflow/ai-role-digest
 cp .env.example .env
 ```
 
