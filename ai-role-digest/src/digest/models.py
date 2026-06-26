@@ -14,6 +14,7 @@ class Post(BaseModel):
     author_headline: str
     author_url: str
     posted_at: Optional[datetime] = None
+    query: str = ""
 
 
 class OutreachDraft(BaseModel):

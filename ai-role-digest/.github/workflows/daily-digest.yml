@@ -32,6 +32,15 @@ jobs:
           SMTP_USER: ${{ secrets.SMTP_USER }}
           SMTP_PASS: ${{ secrets.SMTP_PASS }}
           EMAIL_TO: ${{ secrets.EMAIL_TO }}
+          APIFY_MAX_RESULTS_PER_QUERY: ${{ vars.APIFY_MAX_RESULTS_PER_QUERY }}
+          APIFY_MAX_QUERIES_PER_RUN: ${{ vars.APIFY_MAX_QUERIES_PER_RUN }}
+          APIFY_MAX_TOTAL_RESULTS_PER_RUN: ${{ vars.APIFY_MAX_TOTAL_RESULTS_PER_RUN }}
+          APIFY_MAX_PAID_DATASET_ITEMS: ${{ vars.APIFY_MAX_PAID_DATASET_ITEMS }}
+          APIFY_DAYS_LOOKBACK: ${{ vars.APIFY_DAYS_LOOKBACK }}
+          APIFY_DRY_RUN: ${{ vars.APIFY_DRY_RUN }}
+          APIFY_ACTOR_ID: ${{ vars.APIFY_ACTOR_ID }}
+          APIFY_MAX_RESULTS_INPUT_FIELD: ${{ vars.APIFY_MAX_RESULTS_INPUT_FIELD }}
+          APIFY_POSTED_LIMIT: ${{ vars.APIFY_POSTED_LIMIT }}
           FEEDBACK_BASE_URL: ${{ secrets.FEEDBACK_BASE_URL }}
           FEEDBACK_FORM_URL: ${{ secrets.FEEDBACK_FORM_URL }}
         run: python -m src.digest.main

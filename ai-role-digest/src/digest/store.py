@@ -22,11 +22,16 @@ from .models import Post
 log = logging.getLogger(__name__)
 
 TABLE = "seen_posts"
+QUERY_PERFORMANCE_TABLE = "apify_query_performance"
 MISSING_TABLE_MESSAGE = (
     "Supabase table public.seen_posts does not exist. "
     "Create it in Supabase SQL Editor with: "
     "create table if not exists public.seen_posts "
     "(post_id text primary key, url text, seen_at timestamptz default now());"
+)
+MISSING_PERFORMANCE_TABLE_MESSAGE = (
+    "Supabase table public.apify_query_performance does not exist. "
+    "Run ai-role-digest/supabase/schema.sql in Supabase SQL Editor."
 )
 RLS_DENIED_MESSAGE = (
     "Supabase denied access to public.seen_posts. "
@@ -59,6 +64,14 @@ def _raise_clear_store_error(exc: APIError) -> None:
     raise exc
 
 
+def _raise_clear_performance_error(exc: APIError) -> None:
+    if exc.code == "PGRST205":
+        raise RuntimeError(MISSING_PERFORMANCE_TABLE_MESSAGE) from exc
+    if exc.code == "42501":
+        raise RuntimeError(RLS_DENIED_MESSAGE) from exc
+    raise exc
+
+
 def filter_unseen(posts: list[Post]) -> list[Post]:
     if not posts:
         return []
@@ -82,3 +95,32 @@ def mark_seen(posts: list[Post]) -> None:
     except APIError as exc:
         _raise_clear_store_error(exc)
     log.info("store: marked %d posts as seen", len(posts))
+
+
+def load_query_performance() -> dict[str, dict]:
+    try:
+        result = (
+            _client()
+            .table(QUERY_PERFORMANCE_TABLE)
+            .select(
+                "query,posts_returned,unique_posts,valid_hiring_signals,"
+                "high_fit_signals,duplicate_rate,last_run_at"
+            )
+            .execute()
+        )
+    except APIError as exc:
+        _raise_clear_performance_error(exc)
+    rows = result.data or []
+    performance = {row["query"]: row for row in rows}
+    log.info("store: loaded %d Apify query performance rows", len(performance))
+    return performance
+
+
+def upsert_query_performance(rows: list[dict]) -> None:
+    if not rows:
+        return
+    try:
+        _client().table(QUERY_PERFORMANCE_TABLE).upsert(rows, on_conflict="query").execute()
+    except APIError as exc:
+        _raise_clear_performance_error(exc)
+    log.info("store: upserted %d Apify query performance rows", len(rows))
