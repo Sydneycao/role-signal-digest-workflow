@@ -16,7 +16,13 @@ from .fetch import build_query_performance_rows, fetch_posts_result
 from .outreach import draft_reach_out
 from .render import render
 from .score import score_and_filter
-from .store import filter_unseen, load_query_performance, mark_seen, upsert_query_performance
+from .store import (
+    filter_unseen,
+    load_feedback_filter_config,
+    load_query_performance,
+    mark_seen,
+    upsert_query_performance,
+)
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s", stream=sys.stderr,
@@ -50,6 +56,14 @@ def _upsert_query_performance_best_effort(rows: list[dict]) -> None:
         upsert_query_performance(rows)
     except Exception as exc:
         log.warning("Could not update Apify query performance: %s", exc)
+
+
+def _load_feedback_config_or_empty() -> dict:
+    try:
+        return load_feedback_filter_config()
+    except Exception as exc:
+        log.warning("Could not load feedback filter config; using checked-in defaults: %s", exc)
+        return {}
 
 
 def require_env(names: Iterable[str] = REQUIRED_ENV_VARS) -> None:
@@ -108,7 +122,7 @@ def main() -> None:
             send(f"AI Role Digest {date.today()} — no new posts", "<p>No new posts today.</p>")
         return
 
-    scored = score_and_filter(fresh)
+    scored = score_and_filter(fresh, feedback_config=_load_feedback_config_or_empty())
     log.info("stage score: %d posts above threshold", len(scored))
     high_fit_counts: dict[str, int] = {}
     for scored_post in scored:

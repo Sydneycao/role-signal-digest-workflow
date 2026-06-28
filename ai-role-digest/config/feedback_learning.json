@@ -1,0 +1,30 @@
+{
+  "allowed_locations": ["US", "Remote US", "New York", "San Francisco"],
+  "blocked_locations": [],
+  "blocked_seniority_keywords": [],
+  "max_years_experience": 6,
+  "require_hiring_signal": false,
+  "positive_title_boost_keywords": [
+    "AI Builder",
+    "AI Automation Engineer",
+    "AI Agent Engineer",
+    "AI Enablement",
+    "AI Solutions Consultant"
+  ],
+  "positive_domain_boost_keywords": [
+    "agentic AI",
+    "workflow automation",
+    "AI agents",
+    "internal enablement",
+    "GTM automation"
+  ],
+  "positive_workflow_boost_keywords": [
+    "workflow automation",
+    "operations automation",
+    "process automation",
+    "internal tools"
+  ],
+  "positive_agent_boost_keywords": ["AI Agent", "AI agents", "agentic AI", "LLM agent"],
+  "positive_location_boost_terms": ["US", "Remote US", "New York", "San Francisco"],
+  "acceptable_seniority_keywords": ["Associate", "Junior", "Entry", "Early Career", "Mid-level", "II"]
+}

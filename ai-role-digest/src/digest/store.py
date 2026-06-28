@@ -23,6 +23,7 @@ log = logging.getLogger(__name__)
 
 TABLE = "seen_posts"
 QUERY_PERFORMANCE_TABLE = "apify_query_performance"
+FEEDBACK_CONFIG_TABLE = "feedback_filter_config"
 MISSING_TABLE_MESSAGE = (
     "Supabase table public.seen_posts does not exist. "
     "Create it in Supabase SQL Editor with: "
@@ -124,3 +125,24 @@ def upsert_query_performance(rows: list[dict]) -> None:
     except APIError as exc:
         _raise_clear_performance_error(exc)
     log.info("store: upserted %d Apify query performance rows", len(rows))
+
+
+def load_feedback_filter_config() -> dict:
+    try:
+        result = (
+            _client()
+            .table(FEEDBACK_CONFIG_TABLE)
+            .select("config")
+            .eq("key", "active")
+            .limit(1)
+            .execute()
+        )
+    except APIError as exc:
+        if exc.code == "PGRST205":
+            log.warning("Supabase table public.%s does not exist; using checked-in feedback config", FEEDBACK_CONFIG_TABLE)
+            return {}
+        _raise_clear_store_error(exc)
+    rows = result.data or []
+    if not rows:
+        return {}
+    return rows[0].get("config") or {}

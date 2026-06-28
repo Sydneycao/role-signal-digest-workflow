@@ -15,6 +15,7 @@ from typing import Optional
 import anthropic
 from pydantic import BaseModel
 
+from .feedback_learning import apply_feedback_boost, passes_feedback_hard_filters
 from .models import Post, ScoredPost
 
 log = logging.getLogger(__name__)
@@ -81,15 +82,24 @@ def _rubric() -> str:
     return RUBRIC_PATH.read_text()
 
 
-def _prefilter_posts(posts: list[Post]) -> list[Post]:
+def _prefilter_posts(
+    posts: list[Post],
+    feedback_config: dict | None = None,
+) -> list[Post]:
     kept: list[Post] = []
+    feedback_config = feedback_config or {}
     for post in posts:
         post_text = post.text.lower()
         context = f"{post.author_headline}\n{post.text}".lower()
         has_hiring_signal = any(term in post_text for term in HIRING_TERMS)
         has_target_signal = any(term in context for term in TARGET_TERMS)
         has_reject_signal = any(term in post_text for term in REJECT_TERMS)
-        if has_hiring_signal and has_target_signal and not has_reject_signal:
+        if (
+            has_hiring_signal
+            and has_target_signal
+            and not has_reject_signal
+            and passes_feedback_hard_filters(post, feedback_config)
+        ):
             kept.append(post)
 
     log.info("prefilter: %d posts -> %d plausible posts", len(posts), len(kept))
@@ -146,9 +156,11 @@ async def _score_all(posts: list[Post]) -> list[ScoredPost]:
     return [r for r in results if r is not None]
 
 
-def score_and_filter(posts: list[Post]) -> list[ScoredPost]:
-    candidates = _prefilter_posts(posts)
+def score_and_filter(posts: list[Post], feedback_config: dict | None = None) -> list[ScoredPost]:
+    feedback_config = feedback_config or {}
+    candidates = _prefilter_posts(posts, feedback_config=feedback_config)
     scored = asyncio.run(_score_all(candidates))
+    scored = [apply_feedback_boost(s, feedback_config) for s in scored]
     kept = [s for s in scored if s.score >= SCORE_THRESHOLD]
     log.info(
         "scoring: %d posts → %d candidates → %d scored → %d above threshold %d",
