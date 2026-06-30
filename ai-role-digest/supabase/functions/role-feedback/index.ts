@@ -66,20 +66,52 @@ function unique(values: string[]): string[] {
   return result;
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function normalizedText(text: string): string {
+  return text.toLowerCase().replace(/\bu\.s\./g, "us");
+}
+
+function hasTerm(text: string, term: string): boolean {
+  const lower = normalizedText(text);
+  const termLower = normalizedText(term);
+  if (termLower.length <= 3 || /^[a-z0-9.]+$/i.test(term)) {
+    return new RegExp(`\\b${escapeRegExp(termLower)}\\b`, "i").test(lower);
+  }
+  return lower.includes(termLower);
+}
+
 function containsAny(text: string, terms: string[]): string[] {
-  const lower = text.toLowerCase();
-  return terms.filter((term) => lower.includes(term.toLowerCase()));
+  return terms.filter((term) => hasTerm(text, term));
+}
+
+function locationTerms(text: string): string[] {
+  const lower = normalizedText(text);
+  const negatedAllowedLocation =
+    /\bnot\s+in(?:\s+the)?\s+(?:us|u\.s\.|ny|sf|new york|san francisco)\b/.test(lower);
+  return LOCATION_TERMS.filter((term) => {
+    const termLower = normalizedText(term);
+    if (
+      negatedAllowedLocation &&
+      ["us", "sf", "new york", "nyc", "san francisco"].includes(termLower)
+    ) {
+      return false;
+    }
+    return hasTerm(text, term);
+  });
 }
 
 function classifyNotGood(note = ""): string {
-  const lower = note.toLowerCase();
+  const lower = normalizedText(note);
+  if (["no longer exist", "no longer exists", "expired", "broken link"].some((term) => lower.includes(term))) return "expired_post";
+  if (lower.includes("not a hiring post")) return "not_hiring_post";
   if (/\b(senior|principal|staff|lead|director)\b/.test(lower)) return "too_senior";
   if (/\b(10\s*\+?\s*years?|8\s*\+?\s*years?)\b/.test(lower)) return "too_senior";
-  if (["not in us", "not in the us", "uk", "canada", "india", "europe", "mumbai", "london"].some((term) => lower.includes(term))) {
+  if (["not in us", "not in the us", "uk", "canada", "india", "europe", "mumbai", "london"].some((term) => hasTerm(lower, term))) {
     return "wrong_location";
   }
-  if (lower.includes("not a hiring post")) return "not_hiring_post";
-  if (["no longer exists", "expired", "broken link"].some((term) => lower.includes(term))) return "expired_post";
   if (lower.includes("duplicate")) return "duplicate";
   if (["wrong domain", "not relevant domain", "irrelevant domain"].some((term) => lower.includes(term))) return "not_relevant_domain";
   return "other";
@@ -139,7 +171,7 @@ function structureFeedback(feedback_type: FeedbackType, title = "", note = ""): 
     feedback_category: feedback_type === "not_good" ? classifyNotGood(note) : null,
     positive_signal_category: feedback_type === "good" ? classifyPositive(title, note) : null,
     extracted_title_keywords: titleKeywords(title),
-    extracted_location_terms: containsAny(text, LOCATION_TERMS),
+    extracted_location_terms: locationTerms(text),
     extracted_domain_terms: unique(domainTerms),
     extracted_seniority_terms: containsAny(text, SENIORITY_TERMS),
   };
