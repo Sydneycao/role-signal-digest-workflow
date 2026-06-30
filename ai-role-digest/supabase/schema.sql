@@ -44,6 +44,14 @@ create table if not exists public.role_feedback (
 create index if not exists role_feedback_post_id_idx
   on public.role_feedback (post_id);
 
+create unique index if not exists role_feedback_one_good_per_post_idx
+  on public.role_feedback (post_id)
+  where feedback_type = 'good';
+
+create unique index if not exists role_feedback_one_not_good_per_post_idx
+  on public.role_feedback (post_id)
+  where feedback_type = 'not_good';
+
 alter table public.role_feedback
   add column if not exists feedback_category text,
   add column if not exists positive_signal_category text,

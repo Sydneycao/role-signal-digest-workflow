@@ -23,7 +23,7 @@ LinkedIn search via Apify
 
 The feedback loop is intentionally simple:
 
-- `Good`: one click, saved as a positive signal.
+- `Good`: opens a confirmation page, then saves a positive signal with POST.
 - `Add feedback`: opens a small form where you explain why a result is not good.
 
 Feedback is saved in Supabase table `role_feedback`.
@@ -185,6 +185,11 @@ from public.role_feedback
 order by created_at desc
 limit 20;
 ```
+
+If historical feedback contains duplicate clicks or a post has both `good` and
+`not_good`, run `ai-role-digest/supabase/cleanup_feedback_duplicates_2026_06_30.sql`
+once in Supabase SQL Editor. It removes conflicting positive rows, de-dupes each
+`post_id`/feedback type, repairs derived categories, and adds unique indexes.
 
 Use the notes to tune:
 

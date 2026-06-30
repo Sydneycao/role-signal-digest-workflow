@@ -42,6 +42,22 @@ function json(body: Record<string, unknown>, status = 200): Response {
   });
 }
 
+function html(body: string, status = 200): Response {
+  return new Response(body, {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "text/html; charset=utf-8" },
+  });
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 function countValues(values: string[]): Record<string, number> {
   return values.reduce((acc: Record<string, number>, value) => {
     acc[value] = (acc[value] ?? 0) + 1;
@@ -109,7 +125,7 @@ function classifyNotGood(note = ""): string {
   if (lower.includes("not a hiring post")) return "not_hiring_post";
   if (/\b(senior|principal|staff|lead|director)\b/.test(lower)) return "too_senior";
   if (/\b(10\s*\+?\s*years?|8\s*\+?\s*years?)\b/.test(lower)) return "too_senior";
-  if (["not in us", "not in the us", "uk", "canada", "india", "europe", "mumbai", "london"].some((term) => hasTerm(lower, term))) {
+  if (["not in us", "not in the us", "not in ny", "not in sf", "uk", "canada", "india", "europe", "mumbai", "london", "texas"].some((term) => hasTerm(lower, term))) {
     return "wrong_location";
   }
   if (lower.includes("duplicate")) return "duplicate";
@@ -137,7 +153,7 @@ const AI_AGENT_TERMS = ["AI Agent", "AI Agents", "agentic AI", "agentic", "multi
 const WORKFLOW_TERMS = ["workflow", "workflow automation", "automation", "operations automation", "process automation", "internal tools", "internal enablement", "n8n", "Zapier", "Gumloop", "Power Automate"];
 const GTM_TERMS = ["GTM", "go-to-market", "sales enablement", "revops", "revenue operations", "marketing automation", "customer intelligence"];
 const DOMAIN_TERMS = ["agentic AI", "AI Agent", "AI agents", "LLM", "RAG", "workflow automation", "operations automation", "internal enablement", "GTM automation", "healthcare", "healthtech", "clinical", "claims", "life sciences", "data products", "productivity tooling"];
-const LOCATION_TERMS = ["Remote US", "US Remote", "United States", "US", "New York", "NYC", "San Francisco", "SF", "Bay Area", "California", "UK", "United Kingdom", "Canada", "India", "Europe", "Mumbai", "London"];
+const LOCATION_TERMS = ["Remote US", "US Remote", "United States", "US", "New York", "NYC", "San Francisco", "SF", "Bay Area", "California", "Texas", "UK", "United Kingdom", "Canada", "India", "Europe", "Mumbai", "London"];
 const SENIORITY_TERMS = ["intern", "entry", "entry-level", "junior", "associate", "early career", "mid-level", "mid level", "senior", "staff", "principal", "lead", "director", "head of", "vp", "10+ years", "8+ years"];
 const STOPWORDS = new Set(["a", "an", "and", "at", "for", "in", "of", "on", "or", "role", "the", "to", "with", "remote", "hybrid", "onsite", "specialist", "manager", "engineer"]);
 
@@ -189,21 +205,152 @@ function feedbackFormUrl(apiUrl: URL): string {
   return formUrl.toString();
 }
 
+function goodConfirmationPage(apiUrl: URL): Response {
+  const actionUrl = `${apiUrl.origin}${apiUrl.pathname}`;
+  const postId = apiUrl.searchParams.get("post_id") ?? "";
+  const postUrl = apiUrl.searchParams.get("post_url") ?? "";
+  const title = apiUrl.searchParams.get("title") ?? "LinkedIn role";
+
+  return html(`<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Confirm good fit</title>
+<style>
+  body{font-family:system-ui,sans-serif;max-width:640px;margin:40px auto;padding:0 16px;color:#222}
+  h1{font-size:1.35rem;margin:0 0 8px}
+  .muted{color:#666;font-size:.95rem;margin:0 0 20px}
+  button{background:#1a73e8;color:#fff;border:0;border-radius:6px;padding:9px 14px;font:inherit}
+  a{color:#1a73e8;margin-left:12px;text-decoration:none}
+</style>
+</head>
+<body>
+<h1>Confirm good fit</h1>
+<p class="muted">${escapeHtml(title)}</p>
+<form method="post" action="${escapeHtml(actionUrl)}">
+  <input type="hidden" name="feedback_type" value="good">
+  <input type="hidden" name="post_id" value="${escapeHtml(postId)}">
+  <input type="hidden" name="post_url" value="${escapeHtml(postUrl)}">
+  <input type="hidden" name="title" value="${escapeHtml(title)}">
+  <button type="submit">Save as Good</button>
+  ${postUrl ? `<a href="${escapeHtml(postUrl)}">View post</a>` : ""}
+</form>
+</body>
+</html>`);
+}
+
+type SaveFeedbackResult = {
+  ok: boolean;
+  status: "saved" | "duplicate_ignored" | "conflict_ignored" | "error";
+  message: string;
+  httpStatus: number;
+};
+
 async function saveFeedback(payload: {
   post_id: string;
   post_url: string;
   title: string;
   feedback_type: FeedbackType;
   note?: string;
-}): Promise<Response | null> {
-  const structured = structureFeedback(payload.feedback_type, payload.title, payload.note ?? "");
-  const { error } = await supabase.from("role_feedback").insert({ ...payload, ...structured });
-  if (!error) {
-    return null;
+}): Promise<SaveFeedbackResult> {
+  const { data: existingRows, error: lookupError } = await supabase
+    .from("role_feedback")
+    .select("id,feedback_type,created_at")
+    .eq("post_id", payload.post_id)
+    .order("created_at", { ascending: false });
+
+  if (lookupError) {
+    console.error("Failed to check existing role feedback", lookupError);
+    return {
+      ok: false,
+      status: "error",
+      message: "Could not check existing feedback",
+      httpStatus: 500,
+    };
   }
 
-  console.error("Failed to save role feedback", error);
-  return json({ ok: false, error: "Could not save feedback" }, 500);
+  const existing = existingRows ?? [];
+  if (existing.some((row) => row.feedback_type === payload.feedback_type)) {
+    return {
+      ok: true,
+      status: "duplicate_ignored",
+      message: `Feedback already saved as ${payload.feedback_type}`,
+      httpStatus: 200,
+    };
+  }
+
+  const hasNotGood = existing.some((row) => row.feedback_type === "not_good");
+  if (payload.feedback_type === "good" && hasNotGood) {
+    return {
+      ok: true,
+      status: "conflict_ignored",
+      message: "Not saved: this post already has not-good feedback",
+      httpStatus: 200,
+    };
+  }
+
+  if (payload.feedback_type === "not_good") {
+    const { error: deleteError } = await supabase
+      .from("role_feedback")
+      .delete()
+      .eq("post_id", payload.post_id)
+      .eq("feedback_type", "good");
+    if (deleteError) {
+      console.error("Failed to remove stale good feedback", deleteError);
+      return {
+        ok: false,
+        status: "error",
+        message: "Could not replace stale good feedback",
+        httpStatus: 500,
+      };
+    }
+  }
+
+  const structured = structureFeedback(payload.feedback_type, payload.title, payload.note ?? "");
+  const { error } = await supabase.from("role_feedback").insert({ ...payload, ...structured });
+  if (error) {
+    if (error.code === "23505") {
+      return {
+        ok: true,
+        status: "duplicate_ignored",
+        message: `Feedback already saved as ${payload.feedback_type}`,
+        httpStatus: 200,
+      };
+    }
+    console.error("Failed to save role feedback", error);
+    return { ok: false, status: "error", message: "Could not save feedback", httpStatus: 500 };
+  }
+
+  return { ok: true, status: "saved", message: "Feedback saved", httpStatus: 200 };
+}
+
+function feedbackResponse(result: SaveFeedbackResult, wantsHtml: boolean): Response {
+  if (wantsHtml) {
+    const heading = result.ok ? "Feedback saved" : "Feedback not saved";
+    return html(`<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${escapeHtml(heading)}</title>
+<style>
+  body{font-family:system-ui,sans-serif;max-width:640px;margin:40px auto;padding:0 16px;color:#222}
+  h1{font-size:1.35rem;margin:0 0 8px}
+  p{color:#666}
+</style>
+</head>
+<body>
+<h1>${escapeHtml(heading)}</h1>
+<p>${escapeHtml(result.message)}</p>
+</body>
+</html>`, result.httpStatus);
+  }
+
+  if (!result.ok) {
+    return json({ ok: false, status: result.status, error: result.message }, result.httpStatus);
+  }
+  return json({ ok: true, status: result.status, message: result.message }, result.httpStatus);
 }
 
 async function loadFeedbackRows(): Promise<FeedbackRow[]> {
@@ -368,16 +515,7 @@ Deno.serve(async (req: Request) => {
     }
 
     if (action === "good") {
-      const errorResponse = await saveFeedback({
-        post_id,
-        post_url,
-        title,
-        feedback_type: "good",
-      });
-      if (errorResponse) {
-        return errorResponse;
-      }
-      return text("Saved: Good");
+      return goodConfirmationPage(url);
     }
 
     if (action === "add_feedback") {
@@ -390,10 +528,12 @@ Deno.serve(async (req: Request) => {
 
   if (req.method === "POST") {
     const contentType = req.headers.get("content-type") ?? "";
+    const wantsHtml = !contentType.includes("application/json");
     let post_id = "";
     let post_url = "";
     let title = "LinkedIn role";
     let note = "";
+    let feedback_type: FeedbackType = "not_good";
 
     if (contentType.includes("application/json")) {
       const body = await req.json();
@@ -401,30 +541,39 @@ Deno.serve(async (req: Request) => {
       post_url = String(body.post_url ?? "");
       title = String(body.title ?? title);
       note = String(body.note ?? "").trim();
+      if (body.feedback_type === "good" || body.feedback_type === "not_good") {
+        feedback_type = body.feedback_type;
+      }
     } else {
       const form = await req.formData();
       post_id = String(form.get("post_id") ?? "");
       post_url = String(form.get("post_url") ?? "");
       title = String(form.get("title") ?? title);
       note = String(form.get("note") ?? "").trim();
+      const requestedType = String(form.get("feedback_type") ?? "");
+      if (requestedType === "good" || requestedType === "not_good") {
+        feedback_type = requestedType;
+      }
     }
 
-    if (!post_id || !note) {
-      return json({ ok: false, error: "Missing feedback" }, 400);
+    if (!post_id || (feedback_type === "not_good" && !note)) {
+      const result: SaveFeedbackResult = {
+        ok: false,
+        status: "error",
+        message: "Missing feedback",
+        httpStatus: 400,
+      };
+      return feedbackResponse(result, wantsHtml);
     }
 
-    const errorResponse = await saveFeedback({
+    const result = await saveFeedback({
       post_id,
       post_url,
       title,
-      feedback_type: "not_good",
+      feedback_type,
       note,
     });
-    if (errorResponse) {
-      return errorResponse;
-    }
-
-    return json({ ok: true, message: "Feedback saved" });
+    return feedbackResponse(result, wantsHtml);
   }
 
   return text("Not found", 404);
