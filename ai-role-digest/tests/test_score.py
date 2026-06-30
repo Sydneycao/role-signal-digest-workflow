@@ -94,6 +94,89 @@ def test_prefilter_rejects_obvious_sales_role():
     assert [post.id for post in kept] == ["applied-ai"]
 
 
+def test_prefilter_rejects_candidate_job_search_post():
+    posts = [
+        Post(
+            id="candidate",
+            url="https://www.linkedin.com/posts/candidate",
+            text="I'm currently seeking a Senior AI/ML Engineer opportunity with LLM agents.",
+            author_name="Candidate",
+            author_headline="AI Engineer | Open to work",
+            author_url="https://www.linkedin.com/in/candidate",
+        )
+    ]
+
+    assert _prefilter_posts(posts) == []
+
+
+def test_prefilter_rejects_wrong_location_post():
+    posts = [
+        Post(
+            id="texas",
+            url="https://www.linkedin.com/posts/texas",
+            text="We are hiring an Applied AI Engineer in Texas to build internal agents.",
+            author_name="Founder",
+            author_headline="Founder",
+            author_url="https://www.linkedin.com/in/founder",
+        )
+    ]
+
+    assert _prefilter_posts(posts) == []
+
+
+def test_prefilter_rejects_too_senior_post():
+    posts = [
+        Post(
+            id="principal",
+            url="https://www.linkedin.com/posts/principal",
+            text="We are hiring a Principal AI Agent Engineer with 8+ years of experience.",
+            author_name="Recruiter",
+            author_headline="Recruiter",
+            author_url="https://www.linkedin.com/in/recruiter",
+        )
+    ]
+
+    assert _prefilter_posts(posts) == []
+
+
+def test_prefilter_rejects_expired_post():
+    posts = [
+        Post(
+            id="expired",
+            url="https://www.linkedin.com/posts/expired",
+            text="We were hiring an Applied AI Engineer, but applications are closed.",
+            author_name="Founder",
+            author_headline="Founder",
+            author_url="https://www.linkedin.com/in/founder",
+        )
+    ]
+
+    assert _prefilter_posts(posts) == []
+
+
+def test_prefilter_rejects_duplicate_posts_in_batch():
+    posts = [
+        Post(
+            id="dupe",
+            url="https://www.linkedin.com/posts/dupe",
+            text="We are hiring an Applied AI Engineer to build internal agents.",
+            author_name="Founder",
+            author_headline="Founder",
+            author_url="https://www.linkedin.com/in/founder",
+        ),
+        Post(
+            id="dupe",
+            url="https://www.linkedin.com/posts/dupe",
+            text="We are hiring an Applied AI Engineer to build internal agents.",
+            author_name="Founder",
+            author_headline="Founder",
+            author_url="https://www.linkedin.com/in/founder",
+        ),
+    ]
+
+    assert [post.id for post in _prefilter_posts(posts)] == ["dupe"]
+
+
 def test_default_model_is_haiku():
     assert CLAUDE_MODEL == "claude-haiku-4-5"
 

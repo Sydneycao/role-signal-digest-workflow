@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 from pathlib import Path
 from typing import Optional
 
@@ -57,9 +58,13 @@ TARGET_TERMS = (
 REJECT_TERMS = (
     "account executive",
     "applied scientist",
+    "client success",
+    "customer success",
     "director",
+    "founder associate",
     "machine learning research",
     "ml research",
+    "non-technical strategy",
     "phd",
     "postdoc",
     "principal scientist",
@@ -67,6 +72,42 @@ REJECT_TERMS = (
     "sales executive",
     "solutions engineer",
     "vice president",
+)
+NON_US_LOCATION_TERMS = (
+    "abu dhabi",
+    "canada",
+    "europe",
+    "india",
+    "london",
+    "mumbai",
+    "texas",
+    "uk",
+    "united kingdom",
+)
+TOO_SENIOR_TERMS = (
+    "director",
+    "principal",
+    "staff",
+    "vice president",
+    "vp",
+)
+CANDIDATE_JOB_SEARCH_PATTERNS = (
+    r"\bi(?:'| a)?m currently seeking\b",
+    r"\bi(?:'| a)?m seeking\b",
+    r"\bi(?:'| a)?m looking for (?:a|my next|new|an?) .{0,40}\b(role|opportunity|job)\b",
+    r"\bopen to work\b",
+    r"\bseeking (?:a|my next|new|an?) .{0,40}\b(role|opportunity|job)\b",
+)
+EXPIRED_POST_TERMS = (
+    "applications are closed",
+    "applications closed",
+    "broken link",
+    "no longer accepting",
+    "no longer available",
+    "no longer exists",
+    "position has been filled",
+    "role has been filled",
+    "role is filled",
 )
 
 
@@ -82,24 +123,73 @@ def _rubric() -> str:
     return RUBRIC_PATH.read_text()
 
 
+def _matches_word(term: str, text: str) -> bool:
+    return re.search(r"\b" + re.escape(term.lower()) + r"\b", text) is not None
+
+
+def _requires_too_many_years(text: str, max_years: int = 6) -> bool:
+    for match in re.finditer(r"(\d+)\s*\+?\s*years?", text):
+        if int(match.group(1)) > max_years:
+            return True
+    return False
+
+
+def _looks_like_candidate_job_search(post_text: str) -> bool:
+    return any(re.search(pattern, post_text) for pattern in CANDIDATE_JOB_SEARCH_PATTERNS)
+
+
+def _base_hard_reject_reasons(post: Post) -> list[str]:
+    post_text = post.text.lower()
+    context = f"{post.author_headline}\n{post.text}".lower()
+    reasons: list[str] = []
+
+    if _looks_like_candidate_job_search(post_text):
+        reasons.append("not_hiring_post")
+    if any(term in post_text for term in EXPIRED_POST_TERMS):
+        reasons.append("expired_post")
+    if any(_matches_word(term, context) for term in NON_US_LOCATION_TERMS):
+        reasons.append("wrong_location")
+    if (
+        any(_matches_word(term, post_text) for term in TOO_SENIOR_TERMS)
+        or _requires_too_many_years(post_text)
+    ):
+        reasons.append("too_senior")
+    if any(term in post_text for term in REJECT_TERMS):
+        reasons.append("not_relevant_domain")
+    return reasons
+
+
+def _post_key(post: Post) -> str:
+    return post.id or post.url
+
+
 def _prefilter_posts(
     posts: list[Post],
     feedback_config: dict | None = None,
 ) -> list[Post]:
     kept: list[Post] = []
     feedback_config = feedback_config or {}
+    seen_keys: set[str] = set()
     for post in posts:
         post_text = post.text.lower()
         context = f"{post.author_headline}\n{post.text}".lower()
         has_hiring_signal = any(term in post_text for term in HIRING_TERMS)
         has_target_signal = any(term in context for term in TARGET_TERMS)
-        has_reject_signal = any(term in post_text for term in REJECT_TERMS)
-        if (
-            has_hiring_signal
-            and has_target_signal
-            and not has_reject_signal
-            and passes_feedback_hard_filters(post, feedback_config)
-        ):
+        key = _post_key(post)
+        reject_reasons = []
+        if key in seen_keys:
+            reject_reasons.append("duplicate")
+        else:
+            seen_keys.add(key)
+        reject_reasons.extend(_base_hard_reject_reasons(post))
+        if not has_hiring_signal:
+            reject_reasons.append("not_hiring_post")
+        if not has_target_signal:
+            reject_reasons.append("not_relevant_domain")
+        if not passes_feedback_hard_filters(post, feedback_config):
+            reject_reasons.append("feedback_rule")
+
+        if not reject_reasons:
             kept.append(post)
 
     log.info("prefilter: %d posts -> %d plausible posts", len(posts), len(kept))

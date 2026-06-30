@@ -14,4 +14,17 @@ LOW (0–4) / reject — ML research/applied science (PhD-track); customer-facin
 deployment (FDE, solutions eng at customers); non-technical strategy/founder associate;
 sales/AE; director/VP above IC builder level.
 
+Reject or score 0–4 when any negative feedback category applies:
+- too_senior: principal/staff/director/VP scope, PhD-track research seniority, or more
+  than ~6 years required.
+- wrong_location: role is outside New York, San Francisco, or Remote US / US-friendly
+  remote.
+- not_hiring_post: the author is looking for a job, sharing general advice, promoting a
+  product/event, or otherwise not posting an employer hiring signal.
+- expired_post: the post or role says applications are closed, the role is filled, or
+  the link/post is no longer active.
+- not_relevant_domain: sales/AE, pure customer-success, generic strategy, ML research,
+  or customer-facing solutions work rather than internal applied-AI building.
+- duplicate: same role/post repeated with no new hiring signal.
+
 Return ONLY JSON: {score, role_match, reason, poster_name, poster_url}

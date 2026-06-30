@@ -18,8 +18,7 @@ create table if not exists public.role_feedback (
       'not_hiring_post',
       'expired_post',
       'not_relevant_domain',
-      'duplicate',
-      'other'
+      'duplicate'
     )
   ),
   positive_signal_category text check (
@@ -59,6 +58,22 @@ alter table public.role_feedback
   add column if not exists extracted_location_terms jsonb not null default '[]'::jsonb,
   add column if not exists extracted_domain_terms jsonb not null default '[]'::jsonb,
   add column if not exists extracted_seniority_terms jsonb not null default '[]'::jsonb;
+
+alter table public.role_feedback
+  drop constraint if exists role_feedback_feedback_category_check;
+
+alter table public.role_feedback
+  add constraint role_feedback_feedback_category_check
+  check (
+    feedback_category in (
+      'too_senior',
+      'wrong_location',
+      'not_hiring_post',
+      'expired_post',
+      'not_relevant_domain',
+      'duplicate'
+    )
+  );
 
 create index if not exists role_feedback_created_at_idx
   on public.role_feedback (created_at desc);

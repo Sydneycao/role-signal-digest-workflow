@@ -21,7 +21,7 @@ set feedback_category =
     when lower(coalesce(note, '')) like '%duplicate%' then 'duplicate'
     when lower(coalesce(note, '')) ~ '(wrong domain|not relevant domain|irrelevant domain)'
       then 'not_relevant_domain'
-    else 'other'
+    else 'not_relevant_domain'
   end;
 
 -- Recompute derived positive categories with the current classifier rules.
@@ -76,5 +76,21 @@ create unique index if not exists role_feedback_one_good_per_post_idx
 create unique index if not exists role_feedback_one_not_good_per_post_idx
   on public.role_feedback (post_id)
   where feedback_type = 'not_good';
+
+alter table public.role_feedback
+  drop constraint if exists role_feedback_feedback_category_check;
+
+alter table public.role_feedback
+  add constraint role_feedback_feedback_category_check
+  check (
+    feedback_category in (
+      'too_senior',
+      'wrong_location',
+      'not_hiring_post',
+      'expired_post',
+      'not_relevant_domain',
+      'duplicate'
+    )
+  );
 
 commit;

@@ -17,7 +17,7 @@ set feedback_category =
     when lower(coalesce(note, '')) like '%duplicate%' then 'duplicate'
     when lower(coalesce(note, '')) ~ '(wrong domain|not relevant domain|irrelevant domain)'
       then 'not_relevant_domain'
-    else 'other'
+    else 'not_relevant_domain'
   end;
 
 update public.role_feedback

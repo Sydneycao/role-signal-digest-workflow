@@ -130,7 +130,7 @@ function classifyNotGood(note = ""): string {
   }
   if (lower.includes("duplicate")) return "duplicate";
   if (["wrong domain", "not relevant domain", "irrelevant domain"].some((term) => lower.includes(term))) return "not_relevant_domain";
-  return "other";
+  return "not_relevant_domain";
 }
 
 const ROLE_ARCHETYPES = [
@@ -438,7 +438,7 @@ async function handleFeedbackEndpoint(pathname: string, req: Request): Promise<R
       total_feedback_count: rows.length,
       good_count: good.length,
       not_good_count: bad.length,
-      negative_feedback_category_counts: countValues(bad.map((row) => row.feedback_category ?? "other")),
+      negative_feedback_category_counts: countValues(bad.map((row) => row.feedback_category ?? "not_relevant_domain")),
       positive_signal_category_counts: countValues(good.map((row) => row.positive_signal_category ?? "other")),
       most_common_keywords_from_good_titles: mostCommon(good.flatMap((row) => row.extracted_title_keywords ?? [])),
       most_common_keywords_from_rejected_titles: mostCommon(bad.flatMap((row) => row.extracted_title_keywords ?? [])),
