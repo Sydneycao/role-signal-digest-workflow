@@ -15,7 +15,7 @@ set feedback_category =
     when lower(coalesce(note, '')) ~ '\m(senior|principal|staff|lead|director)\M'
       or lower(coalesce(note, '')) ~ '\m(10\s*\+?\s*years?|8\s*\+?\s*years?)\M'
       then 'too_senior'
-    when lower(replace(coalesce(note, ''), 'u.s.', 'us')) ~
+    when replace(lower(coalesce(note, '')), 'u.s.', 'us') ~
       '(not in us|not in the us|not in ny|not in sf|\muk\M|\mcanada\M|\mindia\M|\meurope\M|\mmumbai\M|\mlondon\M|\mtexas\M)'
       then 'wrong_location'
     when lower(coalesce(note, '')) like '%duplicate%' then 'duplicate'
