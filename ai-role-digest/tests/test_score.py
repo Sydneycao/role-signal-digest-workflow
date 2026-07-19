@@ -12,7 +12,12 @@ import pytest
 
 from src.digest.main import require_env
 from src.digest.models import Post
-from src.digest.score import CLAUDE_MODEL, _prefilter_posts, _ScoreResult, score_and_filter
+from src.digest.score import (
+    CLAUDE_MODEL,
+    _prefilter_posts,
+    _ScoreResult,
+    score_and_filter,
+)
 
 FIXTURES = Path(__file__).parent / "fixtures" / "sample_posts.json"
 
@@ -53,7 +58,7 @@ def test_score_and_filter_keeps_high_scores():
         patch("src.digest.score.anthropic.AsyncAnthropic", return_value=mock_ctx),
         patch("src.digest.score._rubric", return_value="You are a job scorer."),
     ):
-        result = score_and_filter(posts)
+        result = score_and_filter(posts, mode="anthropic")
 
     assert len(result) == 2
     assert all(s.score >= 7 for s in result)
@@ -67,6 +72,30 @@ def test_score_and_filter_keeps_high_scores():
 def test_score_and_filter_empty_input():
     result = score_and_filter([])
     assert result == []
+
+
+def test_default_rule_scoring_needs_no_anthropic_call():
+    posts = [
+        Post(
+            id="rules",
+            url="https://www.linkedin.com/posts/rules",
+            text=(
+                "We are hiring an Applied AI Engineer to build internal agents "
+                "and workflow automation for our New York team."
+            ),
+            author_name="Founder",
+            author_headline="Founder",
+            author_url="https://www.linkedin.com/in/founder",
+        )
+    ]
+
+    with patch("src.digest.score.anthropic.AsyncAnthropic") as client:
+        result = score_and_filter(posts)
+
+    assert len(result) == 1
+    assert result[0].score >= 7
+    assert "Rule-based match" in result[0].reason
+    client.assert_not_called()
 
 
 def test_prefilter_rejects_obvious_sales_role():
@@ -195,7 +224,7 @@ def test_score_and_filter_all_below_threshold():
         patch("src.digest.score.anthropic.AsyncAnthropic", return_value=mock_ctx),
         patch("src.digest.score._rubric", return_value="scorer"),
     ):
-        result = score_and_filter(posts)
+        result = score_and_filter(posts, mode="anthropic")
 
     assert result == []
 

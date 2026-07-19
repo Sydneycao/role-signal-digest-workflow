@@ -78,6 +78,30 @@ def test_filter_unseen_reports_missing_table(monkeypatch):
     assert str(exc.value) == MISSING_TABLE_MESSAGE
 
 
+def test_filter_unseen_can_safely_reprocess_recent_rows(monkeypatch):
+    monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co")
+    monkeypatch.setenv("SUPABASE_KEY", "test-key")
+    old = Post(
+        id="old",
+        url="https://www.linkedin.com/posts/old",
+        text="Hiring for applied AI.",
+        author_name="Founder",
+        author_headline="Founder",
+        author_url="https://www.linkedin.com/in/founder",
+    )
+    recent = old.model_copy(update={"id": "recent", "url": "https://www.linkedin.com/posts/recent"})
+
+    with patch("src.digest.store.create_client") as create_client:
+        query = create_client.return_value.table.return_value.select.return_value
+        query.in_.return_value.execute.return_value.data = [
+            {"post_id": "old", "seen_at": "2026-07-09T12:00:00Z"},
+            {"post_id": "recent", "seen_at": "2026-07-10T12:00:00Z"},
+        ]
+        result = filter_unseen([old, recent], reprocess_since="2026-07-10")
+
+    assert [post.id for post in result] == ["recent"]
+
+
 def test_mark_seen_reports_rls_denied(monkeypatch):
     monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co")
     monkeypatch.setenv("SUPABASE_KEY", "anon-key")

@@ -54,7 +54,7 @@ def test_draft_reach_out_maps_structured_output():
     mock_ctx.__aexit__ = AsyncMock(return_value=False)
 
     with patch("src.digest.outreach.anthropic.AsyncAnthropic", return_value=mock_ctx):
-        result = draft_reach_out([_scored_post()])
+        result = draft_reach_out([_scored_post()], mode="anthropic")
 
     assert len(result) == 1
     assert result[0].outreach is not None
@@ -62,6 +62,15 @@ def test_draft_reach_out_maps_structured_output():
     assert len(result[0].outreach.connection_request) <= CONNECTION_REQUEST_LIMIT
     assert "Applied AI Engineer" in result[0].outreach.direct_message
     assert mock_client.messages.parse.await_count == 1
+
+
+def test_default_outreach_uses_template_without_anthropic():
+    with patch("src.digest.outreach.anthropic.AsyncAnthropic") as client:
+        result = draft_reach_out([_scored_post()])
+
+    assert result[0].outreach is not None
+    assert "15 minutes" in result[0].outreach.direct_message
+    client.assert_not_called()
 
 
 def test_fallback_connection_request_stays_within_linkedin_limit():

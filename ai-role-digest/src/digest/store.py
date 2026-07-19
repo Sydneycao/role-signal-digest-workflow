@@ -73,16 +73,26 @@ def _raise_clear_performance_error(exc: APIError) -> None:
     raise exc
 
 
-def filter_unseen(posts: list[Post]) -> list[Post]:
+def filter_unseen(
+    posts: list[Post],
+    reprocess_since: str | None = None,
+) -> list[Post]:
     if not posts:
         return []
     ids = [p.id for p in posts]
     try:
-        result = _client().table(TABLE).select("post_id").in_("post_id", ids).execute()
+        fields = "post_id,seen_at" if reprocess_since else "post_id"
+        result = _client().table(TABLE).select(fields).in_("post_id", ids).execute()
     except APIError as exc:
         _raise_clear_store_error(exc)
-    seen = {row["post_id"] for row in result.data}
+    seen = {
+        row["post_id"]
+        for row in result.data
+        if not reprocess_since or str(row.get("seen_at") or "") < reprocess_since
+    }
     fresh = [p for p in posts if p.id not in seen]
+    if reprocess_since:
+        log.info("store: reprocessing records first seen on/after %s", reprocess_since)
     log.info("store: %d/%d posts are new", len(fresh), len(posts))
     return fresh
 

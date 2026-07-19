@@ -1,8 +1,4 @@
-"""
-Score posts via Claude structured output (messages.parse + Pydantic).
-Uses AsyncAnthropic with an asyncio semaphore for concurrency control.
-SDK auto-retries rate limits (default 2 retries); we add one more layer.
-"""
+"""Score posts with free local rules or optional Claude structured output."""
 
 from __future__ import annotations
 
@@ -22,6 +18,7 @@ from .models import Post, ScoredPost
 log = logging.getLogger(__name__)
 
 CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL", "claude-haiku-4-5")
+SCORING_MODE = os.environ.get("SCORING_MODE", "rules").lower()
 SCORE_THRESHOLD = int(os.environ.get("SCORE_THRESHOLD", "7"))
 MAX_CONCURRENT = 5
 RUBRIC_PATH = Path("config/rubric.md")
@@ -54,6 +51,35 @@ TARGET_TERMS = (
     "llms",
     "workflow",
     "founder's office",
+)
+STRONG_TARGET_TERMS = (
+    "ai enablement",
+    "applied ai",
+    "ai transformation",
+    "ai automation",
+    "internal ai",
+    "internal tooling",
+)
+AGENT_TERMS = ("agent", "agents", "agentic", "llm", "llms", "rag")
+WORKFLOW_TERMS = ("automation", "automations", "workflow", "workflows")
+BUILDER_TERMS = (
+    "build",
+    "building",
+    "engineer",
+    "engineering",
+    "hands-on",
+    "implement",
+    "ship",
+)
+GTM_TERMS = ("gtm", "go-to-market", "founder's office", "sales automation")
+POSITIVE_LOCATION_TERMS = (
+    "remote us",
+    "us remote",
+    "united states",
+    "new york",
+    "nyc",
+    "san francisco",
+    "bay area",
 )
 REJECT_TERMS = (
     "account executive",
@@ -246,14 +272,56 @@ async def _score_all(posts: list[Post]) -> list[ScoredPost]:
     return [r for r in results if r is not None]
 
 
-def score_and_filter(posts: list[Post], feedback_config: dict | None = None) -> list[ScoredPost]:
+def _rule_score(post: Post) -> ScoredPost:
+    """Deterministically score a post without calling an external model."""
+    text = f"{post.author_headline}\n{post.text}".lower()
+    matched: list[str] = []
+    score = 4  # The prefilter already established hiring + target-role intent.
+
+    def add_signal(label: str, terms: tuple[str, ...], points: int) -> None:
+        nonlocal score
+        if any(term in text for term in terms):
+            score += points
+            matched.append(label)
+
+    add_signal("strong applied-AI signal", STRONG_TARGET_TERMS, 2)
+    add_signal("AI agent/LLM work", AGENT_TERMS, 1)
+    add_signal("workflow automation", WORKFLOW_TERMS, 1)
+    add_signal("hands-on building", BUILDER_TERMS, 1)
+    add_signal("GTM/founder's-office work", GTM_TERMS, 1)
+    add_signal("preferred US location", POSITIVE_LOCATION_TERMS, 1)
+
+    final_score = min(10, score)
+    reason = "Rule-based match: " + ", ".join(matched or ["general target-role signal"])
+    return ScoredPost(
+        post=post,
+        score=final_score,
+        role_match=final_score >= SCORE_THRESHOLD,
+        reason=reason + ".",
+        poster_name=post.author_name,
+        poster_url=post.author_url,
+    )
+
+
+def score_and_filter(
+    posts: list[Post],
+    feedback_config: dict | None = None,
+    mode: str | None = None,
+) -> list[ScoredPost]:
     feedback_config = feedback_config or {}
     candidates = _prefilter_posts(posts, feedback_config=feedback_config)
-    scored = asyncio.run(_score_all(candidates))
+    selected_mode = (mode or SCORING_MODE).lower()
+    if selected_mode == "anthropic":
+        scored = asyncio.run(_score_all(candidates))
+    elif selected_mode == "rules":
+        scored = [_rule_score(post) for post in candidates]
+    else:
+        raise ValueError(f"Unknown SCORING_MODE: {selected_mode}")
     scored = [apply_feedback_boost(s, feedback_config) for s in scored]
     kept = [s for s in scored if s.score >= SCORE_THRESHOLD]
     log.info(
-        "scoring: %d posts → %d candidates → %d scored → %d above threshold %d",
+        "scoring (%s): %d posts → %d candidates → %d scored → %d above threshold %d",
+        selected_mode,
         len(posts),
         len(candidates),
         len(scored),

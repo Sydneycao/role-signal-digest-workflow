@@ -32,7 +32,6 @@ log = logging.getLogger(__name__)
 SEND_ON_EMPTY = os.environ.get("SEND_ON_EMPTY", "false").lower() == "true"
 REQUIRED_ENV_VARS = (
     "APIFY_TOKEN",
-    "ANTHROPIC_API_KEY",
     "SUPABASE_URL",
     "SMTP_HOST",
     "SMTP_PORT",
@@ -107,7 +106,7 @@ def main() -> None:
     raw = fetch_result.posts
     log.info("stage fetch: %d posts", len(raw))
 
-    fresh = filter_unseen(raw)
+    fresh = filter_unseen(raw, reprocess_since=os.environ.get("REPROCESS_SINCE") or None)
     log.info("stage dedupe: %d new posts", len(fresh))
 
     if not fresh:

@@ -21,6 +21,7 @@ from .models import OutreachDraft, ScoredPost
 log = logging.getLogger(__name__)
 
 CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL", "claude-haiku-4-5")
+OUTREACH_MODE = os.environ.get("OUTREACH_MODE", "template").lower()
 MAX_CONCURRENT = 5
 CONNECTION_REQUEST_LIMIT = 200
 DIRECT_MESSAGE_LIMIT = 8000
@@ -165,9 +166,22 @@ async def _draft_all(scored: list[ScoredPost]) -> list[ScoredPost]:
         return await asyncio.gather(*tasks)
 
 
-def draft_reach_out(scored: list[ScoredPost]) -> list[ScoredPost]:
+def draft_reach_out(
+    scored: list[ScoredPost],
+    mode: str | None = None,
+) -> list[ScoredPost]:
     if not scored:
         return []
-    drafted = asyncio.run(_draft_all(scored))
+    selected_mode = (mode or OUTREACH_MODE).lower()
+    if selected_mode == "anthropic":
+        drafted = asyncio.run(_draft_all(scored))
+    elif selected_mode == "template":
+        drafted = [
+            item.model_copy(update={"outreach": _fallback_draft(item)})
+            for item in scored
+        ]
+    else:
+        raise ValueError(f"Unknown OUTREACH_MODE: {selected_mode}")
+    log.info("outreach mode: %s", selected_mode)
     log.info("outreach: drafted messages for %d posts", len(drafted))
     return drafted
