@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { buildRuleProposals } from "./rule_proposals.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
@@ -394,37 +395,7 @@ function preferenceProfile(rows: FeedbackRow[]): Record<string, unknown> {
 }
 
 function ruleProposals(rows: FeedbackRow[]): Record<string, unknown> {
-  const profile = preferenceProfile(rows) as Record<string, string[]>;
-  const bad = rows.filter((row) => row.feedback_type === "not_good");
-  const good = rows.filter((row) => row.feedback_type === "good");
-  const configTerm = (term: string) => {
-    if (term.toLowerCase() === "vp") return "VP";
-    if (term.toLowerCase() === "head of") return "Head of";
-    if (term.toLowerCase().includes("years")) return term;
-    return term.replace(/\b\w/g, (letter) => letter.toUpperCase());
-  };
-  return {
-    negative_filters: {
-      blocked_locations: mostCommon(bad.flatMap((row) => row.extracted_location_terms ?? [])).map(([value]) => value),
-      blocked_seniority_keywords: mostCommon(bad.flatMap((row) => row.extracted_seniority_terms ?? [])).map(([value]) => configTerm(value)),
-      max_years_experience: bad.some((row) => row.feedback_category === "too_senior") ? 6 : null,
-    },
-    positive_boosts: {
-      preferred_title_keywords: profile.preferred_role_title_patterns ?? [],
-      preferred_role_archetypes: (profile.preferred_role_title_patterns ?? []).filter((value) => value.includes(" ")),
-      preferred_domain_terms: mostCommon(good.flatMap((row) => row.extracted_domain_terms ?? [])).map(([value]) => value),
-      preferred_workflow_terms: profile.preferred_workflow_automation_keywords ?? [],
-      preferred_agent_terms: profile.preferred_ai_agent_keywords ?? [],
-      preferred_location_terms: profile.preferred_location_patterns ?? [],
-      acceptable_seniority_keywords: profile.acceptable_seniority_patterns ?? [],
-    },
-    location_rules_to_strengthen: mostCommon(bad.flatMap((row) => row.extracted_location_terms ?? [])).map(([value]) => value),
-    seniority_rules_to_refine: mostCommon(bad.flatMap((row) => row.extracted_seniority_terms ?? [])).map(([value]) => configTerm(value)),
-    hiring_post_classifier_improvements: {
-      not_hiring_post_examples: bad.filter((row) => row.feedback_category === "not_hiring_post").slice(0, 10).map((row) => row.title),
-      expired_post_examples: bad.filter((row) => row.feedback_category === "expired_post").slice(0, 10).map((row) => row.title),
-    },
-  };
+  return buildRuleProposals(rows);
 }
 
 async function handleFeedbackEndpoint(pathname: string, req: Request): Promise<Response | null> {
