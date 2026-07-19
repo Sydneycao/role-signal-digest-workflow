@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from src.digest import main as digest_main
 from src.digest.main import require_env
 from src.digest.models import Post
 from src.digest.score import (
@@ -240,3 +241,10 @@ def test_require_env_reports_empty_github_secret(monkeypatch):
     assert "APIFY_TOKEN" in message
     assert "ANTHROPIC_API_KEY" not in message
     assert "GitHub Actions repository secrets" in message
+
+
+def test_email_dry_run_does_not_send(monkeypatch):
+    monkeypatch.setattr(digest_main, "EMAIL_DRY_RUN", True)
+    with patch("src.digest.main.send") as send:
+        digest_main._send_or_log("Test digest", "<p>test</p>")
+    send.assert_not_called()

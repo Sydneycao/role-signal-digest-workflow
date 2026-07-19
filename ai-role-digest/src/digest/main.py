@@ -30,6 +30,7 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 
 SEND_ON_EMPTY = os.environ.get("SEND_ON_EMPTY", "false").lower() == "true"
+EMAIL_DRY_RUN = os.environ.get("EMAIL_DRY_RUN", "false").lower() == "true"
 REQUIRED_ENV_VARS = (
     "APIFY_TOKEN",
     "SUPABASE_URL",
@@ -65,6 +66,13 @@ def _load_feedback_config_or_empty() -> dict:
         return {}
 
 
+def _send_or_log(subject: str, html: str) -> None:
+    if EMAIL_DRY_RUN:
+        log.info("EMAIL_DRY_RUN=true; would send: %s", subject)
+        return
+    send(subject, html)
+
+
 def require_env(names: Iterable[str] = REQUIRED_ENV_VARS) -> None:
     missing = [name for name in names if not os.environ.get(name)]
     if not any(os.environ.get(name) for name in SUPABASE_KEY_ENV_VARS):
@@ -91,7 +99,7 @@ def main() -> None:
     if fetch_result.skipped_quota:
         log.warning("Apify source skipped due to quota/billing; not treating this as no results")
         if SEND_ON_EMPTY:
-            send(
+            _send_or_log(
                 f"AI Role Digest {date.today()} — Apify quota skipped",
                 (
                     "<p>Apify quota/billing limit hit. "
@@ -118,7 +126,7 @@ def main() -> None:
         _upsert_query_performance_best_effort(performance_rows)
         log.info("No new posts; skipping scoring")
         if SEND_ON_EMPTY:
-            send(f"AI Role Digest {date.today()} — no new posts", "<p>No new posts today.</p>")
+            _send_or_log(f"AI Role Digest {date.today()} — no new posts", "<p>No new posts today.</p>")
         return
 
     scored = score_and_filter(fresh, feedback_config=_load_feedback_config_or_empty())
@@ -144,13 +152,13 @@ def main() -> None:
         log.info("No posts above threshold")
         if SEND_ON_EMPTY:
             subj = f"AI Role Digest {date.today()} — nothing matched"
-            send(subj, "<p>Nothing matched today.</p>")
+            _send_or_log(subj, "<p>Nothing matched today.</p>")
         return
 
     html = render(scored)
     count = len(scored)
     subject = f"AI Role Digest {date.today()} — {count} new role{'s' if count != 1 else ''}"
-    send(subject, html)
+    _send_or_log(subject, html)
     log.info("=== Done ===")
 
 

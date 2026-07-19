@@ -12,6 +12,11 @@ on:
         description: "Reprocess posts first seen on/after this ISO date (for example 2026-07-10)"
         required: false
         type: string
+      email_dry_run:
+        description: "Evaluate and render without sending email"
+        required: false
+        default: false
+        type: boolean
 
 jobs:
   digest:
@@ -53,6 +58,7 @@ jobs:
           OUTREACH_MODE: template
           REPROCESS_SINCE: ${{ inputs.backfill_since }}
           APIFY_DAYS_LOOKBACK: ${{ inputs.backfill_since != '' && '30' || '7' }}
+          EMAIL_DRY_RUN: ${{ inputs.email_dry_run || false }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
