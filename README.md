@@ -1,219 +1,242 @@
-# Role Signal Digest Workflow
+# Role Signal Digest
 
-Automated role discovery, fit scoring, outreach drafting, and feedback tracking.
+A personal job-search digest that finds high-signal LinkedIn hiring posts and
+emails the best matches to you—with a short fit explanation and a ready-to-edit
+outreach message.
 
-The project is designed to be reused for any job search. Change the search
-queries, scoring rubric, and candidate background to target a different role,
-industry, seniority level, location, or outreach style.
+**The idea:** spend less time refreshing job boards and more time talking to the
+right people.
 
-The daily workflow searches LinkedIn hiring posts, deduplicates already-seen
-posts, scores fit with Claude, drafts outreach messages, and emails a digest
-with feedback links.
+The included setup is tuned for applied AI, automation, and AI transformation
+roles. Fork it, change the searches, and make it yours.
 
-## Workflow
+> **No Anthropic API key or credit is required.** The default workflow uses
+> local rule-based scoring and message templates.
 
-```text
-LinkedIn search via Apify
-  -> Supabase seen-post dedupe
-  -> Claude fit scoring
-  -> Claude outreach drafting
-  -> HTML email digest
-  -> Good / Add feedback loop
-```
+## What You Get
 
-The feedback loop is intentionally simple:
+Each digest includes:
 
-- `Good`: opens a confirmation page, then saves a positive signal with POST.
-- `Add feedback`: opens a small form where you explain why a result is not good.
+- LinkedIn hiring posts that match your target roles
+- A fit score and a concise explanation
+- The original post and author profile links
+- A personalized connection note and direct-message draft
+- **Good** and **Add feedback** actions for improving future results
 
-Feedback is saved in Supabase table `role_feedback`.
+The workflow also remembers posts it has already processed, so the same result
+does not keep appearing in your inbox.
 
-## Repository Layout
+## Quick Start
 
-```text
-.github/workflows/daily-digest.yml       GitHub Actions scheduler
-ai-role-digest/src/digest/               Python digest package
-ai-role-digest/config/queries.yaml       LinkedIn search queries to customize
-ai-role-digest/config/rubric.md          Fit scoring rubric to customize
-ai-role-digest/supabase/schema.sql       Supabase tables
-ai-role-digest/supabase/functions/       Supabase Edge Functions
-docs/feedback.html                       Static feedback form for GitHub Pages
-```
+1. **Fork this repository** to your GitHub account.
+2. **Connect four services:** Apify, Supabase, an email account, and GitHub
+   Actions.
+3. **Add your GitHub secrets** using the table below.
+4. **Edit your searches** in
+   [`ai-role-digest/config/queries.yaml`](ai-role-digest/config/queries.yaml).
+5. **Run a dry test**, then enable the daily email.
 
-## Required Services
+The sections below walk through each step. You do not need to understand the
+internal Python code to use the workflow.
 
-- Apify, for LinkedIn post search
-- Anthropic, for fit scoring and message drafting
-- Supabase, for dedupe and feedback storage
-- SMTP email account, for sending the digest
-- GitHub Actions, for scheduled runs
-- GitHub Pages, for the feedback form page
+## What You Need
 
-## Environment Variables
+| Service | What it does | Cost note |
+| --- | --- | --- |
+| [GitHub](https://github.com/) | Stores your fork and runs the daily workflow | GitHub Actions free allowance is usually enough for personal use |
+| [Apify](https://apify.com/) | Searches public LinkedIn posts | Usage-based; the workflow includes conservative result limits |
+| [Supabase](https://supabase.com/) | Remembers seen posts and stores feedback | The free tier is usually enough for personal use |
+| An SMTP email account | Sends the digest | Gmail or another SMTP provider works |
 
-GitHub Actions expects these repository secrets:
+Anthropic is optional and is not used by the default GitHub workflow.
 
-```text
-APIFY_TOKEN
-ANTHROPIC_API_KEY
-SUPABASE_URL
-SUPABASE_SERVICE_ROLE_KEY
-SUPABASE_KEY
-SMTP_HOST
-SMTP_PORT
-SMTP_USER
-SMTP_PASS
-EMAIL_TO
-FEEDBACK_BASE_URL
-FEEDBACK_FORM_URL
-```
+## Setup
 
-Optional runtime settings:
+### 1. Fork the Repository
 
-```text
-CLAUDE_MODEL=claude-haiku-4-5
-SCORE_THRESHOLD=7
-MAX_RESULTS=20
-SEND_ON_EMPTY=false
-CANDIDATE_BACKGROUND=...
-```
+Click **Fork** at the top of this repository, then work from your own copy.
 
-Example feedback URLs:
-
-```text
-FEEDBACK_BASE_URL=https://<project-ref>.supabase.co/functions/v1/role-feedback
-FEEDBACK_FORM_URL=https://<github-username>.github.io/<repo-name>/feedback.html
-```
-
-## Customizing The Search
-
-Update `ai-role-digest/config/queries.yaml` with the LinkedIn searches you want
-to monitor.
-
-Examples:
-
-```yaml
-queries:
-  - '"product manager" "hiring" "remote"'
-  - '"data analyst" "we are hiring"'
-  - '"founding designer" startup'
-```
-
-Update `ai-role-digest/config/rubric.md` to define what a strong match means for
-your search. This is where you describe target responsibilities, seniority,
-industries, dealbreakers, and examples of roles to reject.
-
-Update `CANDIDATE_BACKGROUND` if you want outreach drafts to reference a
-specific candidate profile. If it is not set, the project uses the default
-background in `ai-role-digest/src/digest/outreach.py`.
-
-## Supabase Setup
-
-Run the schema in `ai-role-digest/supabase/schema.sql`.
-
-It creates:
-
-- `seen_posts`: tracks LinkedIn posts that have already been processed.
-- `role_feedback`: stores `good` clicks and `not_good` notes.
-
-Deploy the feedback Edge Function:
+If you also want a local copy:
 
 ```bash
-cd /path/to/role-signal-digest-workflow/ai-role-digest
+git clone https://github.com/<your-username>/role-signal-digest-workflow.git
+cd role-signal-digest-workflow
+```
+
+### 2. Create the Supabase Project
+
+1. Create a project in [Supabase](https://supabase.com/).
+2. Open **SQL Editor** in the Supabase dashboard.
+3. Copy and run
+   [`ai-role-digest/supabase/schema.sql`](ai-role-digest/supabase/schema.sql).
+4. From the `ai-role-digest` directory, deploy the feedback function:
+
+```bash
+npx supabase@latest login
 npx supabase@latest functions deploy role-feedback --project-ref <project-ref>
 ```
 
-The function is configured in `ai-role-digest/supabase/config.toml` with
-`verify_jwt = false` because feedback links are clicked from email.
+You can find the project URL and API keys under **Project Settings → API**.
 
-If you want old `Add feedback` links to redirect to the static form, set this
-Supabase function secret:
+### 3. Publish the Feedback Page
 
-```bash
-npx supabase@latest secrets set FEEDBACK_FORM_URL=https://<github-username>.github.io/<repo-name>/feedback.html --project-ref <project-ref>
-```
-
-## GitHub Pages Setup
-
-The feedback form lives at `docs/feedback.html`.
-
-Enable it in GitHub:
+In your GitHub fork, go to:
 
 ```text
-Settings -> Pages -> Deploy from a branch -> master -> /docs
+Settings → Pages → Deploy from a branch → master → /docs
 ```
 
-Then set GitHub secret `FEEDBACK_FORM_URL` to the published page URL.
+GitHub will publish a URL similar to:
 
-## Running Locally
+```text
+https://<your-username>.github.io/role-signal-digest-workflow/feedback.html
+```
+
+Give the Supabase feedback function that URL:
 
 ```bash
-cd /path/to/role-signal-digest-workflow/ai-role-digest
+npx supabase@latest secrets set \
+  FEEDBACK_FORM_URL=https://<your-username>.github.io/role-signal-digest-workflow/feedback.html \
+  --project-ref <project-ref>
+```
+
+### 4. Add GitHub Secrets
+
+In your fork, open **Settings → Secrets and variables → Actions**, then add:
+
+| Secret | Where to get it |
+| --- | --- |
+| `APIFY_TOKEN` | Apify → Settings → Integrations → API tokens |
+| `SUPABASE_URL` | Supabase → Project Settings → API → Project URL |
+| `SUPABASE_SERVICE_ROLE_KEY` | Supabase → Project Settings → API → service role key |
+| `SUPABASE_KEY` | Supabase anon/public key; optional fallback |
+| `SMTP_HOST` | For Gmail: `smtp.gmail.com` |
+| `SMTP_PORT` | For Gmail: `587` |
+| `SMTP_USER` | The email address that sends the digest |
+| `SMTP_PASS` | Your SMTP password; for Gmail, use an App Password |
+| `EMAIL_TO` | The address that should receive the digest |
+| `FEEDBACK_BASE_URL` | `https://<project-ref>.supabase.co/functions/v1/role-feedback` |
+| `FEEDBACK_FORM_URL` | The GitHub Pages URL created above |
+
+For Gmail, turn on 2-Step Verification and create an
+[App Password](https://support.google.com/accounts/answer/185833). Do not use
+your normal Google password as `SMTP_PASS`.
+
+### 5. Choose What to Search For
+
+Edit [`ai-role-digest/config/queries.yaml`](ai-role-digest/config/queries.yaml):
+
+```yaml
+queries:
+  - '"product manager" "we are hiring" remote'
+  - '"data analyst" hiring fintech'
+  - '"founding designer" startup'
+```
+
+Start with a few focused searches. Broad queries create more noise and use more
+Apify results.
+
+The default scoring rules are designed for applied AI and automation roles. If
+you are targeting a different role family, update the target and rejection
+terms in [`ai-role-digest/src/digest/score.py`](ai-role-digest/src/digest/score.py).
+
+### 6. Send a Test Digest
+
+1. Open the **Actions** tab in your fork.
+2. Select **AI Role Digest**.
+3. Click **Run workflow**.
+4. Check `email_dry_run` for the first run. This fetches and evaluates results
+   without sending an email.
+5. Review the run log, then run it again with `email_dry_run` unchecked.
+
+After setup, GitHub Actions runs the digest every day at **8:00 AM New York
+time**, including daylight-saving time changes.
+
+## Using Your Digest
+
+Every result has two feedback choices:
+
+- **Good** — confirms that the result is relevant.
+- **Add feedback** — lets you explain why a result missed the mark.
+
+Feedback is saved across runs. Repeated, consistent signals can be reviewed and
+applied as new filters; a single click does not immediately rewrite the rules.
+
+## Common Changes
+
+| I want to… | Change this |
+| --- | --- |
+| Search for different roles | `ai-role-digest/config/queries.yaml` |
+| Change what counts as a match | Target and rejection terms in `ai-role-digest/src/digest/score.py` |
+| Change the outreach wording | Templates in `ai-role-digest/src/digest/outreach.py` |
+| Change the delivery time | Schedule in `.github/workflows/daily-digest.yml` |
+| Show more or fewer results | Limits in `.github/workflows/daily-digest.yml` or the runtime environment |
+
+## How It Works
+
+```text
+Search LinkedIn hiring posts
+  → remove posts already processed
+  → score and filter the new results
+  → draft outreach messages
+  → send the email digest
+  → collect feedback for future filtering
+```
+
+Searches rotate based on recent performance, while hard limits keep each run
+small. With the current defaults, the workflow fetches at most 50 dataset items
+per run. Actual Apify charges depend on the actor's current pricing, so review
+your Apify usage dashboard after the first few runs.
+
+## Run Locally (Optional)
+
+GitHub Actions is the easiest way to use the project. For local development:
+
+```bash
+cd ai-role-digest
+python3.11 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
 cp .env.example .env
-```
-
-Fill in `.env`, then run:
-
-```bash
 python -m src.digest.main
 ```
 
-Run tests with Python 3.11:
+Fill in the same service values in `.env`. You can leave
+`ANTHROPIC_API_KEY` empty when using the default `rules` and `template` modes.
+
+Run the test suite with:
 
 ```bash
 uv run --python 3.11 --with-requirements requirements.txt --with pytest pytest
 ```
 
-Run lint:
+## Troubleshooting
 
-```bash
-ruff check .
-```
+### I did not receive an email
 
-## Feedback Review
+Open **Actions → AI Role Digest** and inspect the latest run.
 
-Check recent feedback in Supabase SQL Editor:
+- A successful run may send nothing when there are no unseen matches above the
+  score threshold. This is the default behavior.
+- A run with `email_dry_run` enabled intentionally does not send email.
+- Check that GitHub Actions is enabled and all SMTP secrets are correct.
+- Check your spam folder and your email provider's App Password settings.
+- Check the Apify dashboard if the run reports a quota or billing limit.
 
-```sql
-select
-  created_at,
-  feedback_type,
-  title,
-  note,
-  post_url
-from public.role_feedback
-order by created_at desc
-limit 20;
-```
+### My digest is too broad or too narrow
 
-If historical feedback contains duplicate clicks or a post has both `good` and
-`not_good`, run `ai-role-digest/supabase/cleanup_feedback_duplicates_2026_06_30.sql`
-once in Supabase SQL Editor. It removes conflicting positive rows, de-dupes each
-`post_id`/feedback type, repairs derived categories, and adds unique indexes.
+Make the searches in `queries.yaml` more specific or less restrictive, then use
+the feedback links consistently for several runs. For a completely different
+role family, update the scoring terms as well as the search queries.
 
-Use the notes to tune:
+### I want to reprocess recent posts
 
-- `ai-role-digest/config/rubric.md`
-- `ai-role-digest/config/queries.yaml`
-- outreach instructions in `ai-role-digest/src/digest/outreach.py`
+Run the workflow manually and enter an ISO date such as `2026-07-10` in
+`backfill_since`. Posts first seen on or after that date will be evaluated
+again.
 
-## Success Metrics
+## Privacy
 
-Track the workflow as a funnel:
-
-- Posts fetched
-- New posts after dedupe
-- Posts passing score threshold
-- Good clicks
-- Not-good feedback notes
-- Outreach messages sent
-- Replies received
-- Calls booked
-
-The north-star metric is useful conversations per week.
-
-## Notes
-
-Supabase Edge Functions are used as an API endpoint, not as the visible feedback
-form host. Supabase rewrites browser `GET` HTML responses to plain text, so the
-form is served from GitHub Pages and submits feedback to Supabase.
+This is a bring-your-own-accounts workflow. Your GitHub fork uses your Apify,
+Supabase, and email credentials; secrets stay in GitHub Actions or your local
+`.env` file. Never commit real keys or passwords to the repository.
