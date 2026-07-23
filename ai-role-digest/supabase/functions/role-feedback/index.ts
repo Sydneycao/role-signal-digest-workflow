@@ -194,7 +194,7 @@ function structureFeedback(feedback_type: FeedbackType, title = "", note = ""): 
   };
 }
 
-function feedbackFormUrl(apiUrl: URL): string {
+function feedbackFormUrl(apiUrl: URL, feedbackType: FeedbackType = "not_good"): string {
   const formUrl = new URL(FEEDBACK_FORM_URL);
   for (const key of ["post_id", "post_url", "title"]) {
     const value = apiUrl.searchParams.get(key);
@@ -203,42 +203,15 @@ function feedbackFormUrl(apiUrl: URL): string {
     }
   }
   formUrl.searchParams.set("api_url", `${apiUrl.origin}${apiUrl.pathname}`);
+  formUrl.searchParams.set("feedback_type", feedbackType);
   return formUrl.toString();
 }
 
 function goodConfirmationPage(apiUrl: URL): Response {
-  const actionUrl = `${apiUrl.origin}${apiUrl.pathname}`;
-  const postId = apiUrl.searchParams.get("post_id") ?? "";
-  const postUrl = apiUrl.searchParams.get("post_url") ?? "";
-  const title = apiUrl.searchParams.get("title") ?? "LinkedIn role";
-
-  return html(`<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Confirm good fit</title>
-<style>
-  body{font-family:system-ui,sans-serif;max-width:640px;margin:40px auto;padding:0 16px;color:#222}
-  h1{font-size:1.35rem;margin:0 0 8px}
-  .muted{color:#666;font-size:.95rem;margin:0 0 20px}
-  button{background:#1a73e8;color:#fff;border:0;border-radius:6px;padding:9px 14px;font:inherit}
-  a{color:#1a73e8;margin-left:12px;text-decoration:none}
-</style>
-</head>
-<body>
-<h1>Confirm good fit</h1>
-<p class="muted">${escapeHtml(title)}</p>
-<form method="post" action="${escapeHtml(actionUrl)}">
-  <input type="hidden" name="feedback_type" value="good">
-  <input type="hidden" name="post_id" value="${escapeHtml(postId)}">
-  <input type="hidden" name="post_url" value="${escapeHtml(postUrl)}">
-  <input type="hidden" name="title" value="${escapeHtml(title)}">
-  <button type="submit">Save as Good</button>
-  ${postUrl ? `<a href="${escapeHtml(postUrl)}">View post</a>` : ""}
-</form>
-</body>
-</html>`);
+  if (!FEEDBACK_FORM_URL) {
+    return text("Feedback form URL is not configured", 500);
+  }
+  return Response.redirect(feedbackFormUrl(apiUrl, "good"), 303);
 }
 
 type SaveFeedbackResult = {

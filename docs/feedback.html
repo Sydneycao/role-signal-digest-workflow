@@ -13,17 +13,22 @@
            font:inherit;border:1px solid #d0d7de;border-radius:6px}
   button{background:#1a73e8;color:#fff;border:0;border-radius:6px;padding:9px 14px;font:inherit}
   button:disabled{background:#8ab4f8}
+  .post-link{color:#1a73e8;margin-left:12px;text-decoration:none}
+  .hidden{display:none}
   .status{margin-top:14px;font-size:.95rem}
   .error{color:#b3261e}
 </style>
 </head>
 <body>
-<h1>Add feedback</h1>
+<h1 id="heading">Add feedback</h1>
 <p class="muted" id="title">LinkedIn role</p>
 <form id="feedback-form">
-  <label for="note">Why is this result not good?</label>
-  <textarea id="note" name="note" required autofocus></textarea>
-  <button type="submit">Save feedback</button>
+  <div id="note-fields">
+    <label for="note">Why is this result not good?</label>
+    <textarea id="note" name="note" required autofocus></textarea>
+  </div>
+  <button type="submit" id="submit-button">Save feedback</button>
+  <a class="post-link hidden" id="post-link">View post</a>
   <p class="status" id="status"></p>
 </form>
 <script>
@@ -32,11 +37,26 @@
   const apiUrl = params.get("api_url");
   const postId = params.get("post_id") || "";
   const postUrl = params.get("post_url") || "";
+  const feedbackType = params.get("feedback_type") === "good" ? "good" : "not_good";
   const form = document.getElementById("feedback-form");
   const status = document.getElementById("status");
-  const button = form.querySelector("button");
+  const button = document.getElementById("submit-button");
+  const note = document.getElementById("note");
+  const noteFields = document.getElementById("note-fields");
+  const postLink = document.getElementById("post-link");
 
   document.getElementById("title").textContent = title;
+  if (feedbackType === "good") {
+    document.title = "Confirm good fit";
+    document.getElementById("heading").textContent = "Confirm good fit";
+    noteFields.classList.add("hidden");
+    note.required = false;
+    button.textContent = "Save as Good";
+    if (postUrl) {
+      postLink.href = postUrl;
+      postLink.classList.remove("hidden");
+    }
+  }
 
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
@@ -60,21 +80,24 @@
           post_id: postId,
           post_url: postUrl,
           title,
-          note: document.getElementById("note").value,
+          feedback_type: feedbackType,
+          note: note.value,
         }),
       });
       const result = await response.json();
       if (!response.ok || !result.ok) {
         throw new Error(result.error || "Could not save feedback.");
       }
-      status.textContent = "Feedback saved. Thank you.";
+      status.textContent = feedbackType === "good"
+        ? "Saved as Good. Thank you."
+        : "Feedback saved. Thank you.";
       form.reset();
     } catch (error) {
       status.className = "status error";
       status.textContent = error.message;
     } finally {
       button.disabled = false;
-      button.textContent = "Save feedback";
+      button.textContent = feedbackType === "good" ? "Save as Good" : "Save feedback";
     }
   });
 </script>
