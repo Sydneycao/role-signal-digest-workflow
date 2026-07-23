@@ -202,7 +202,10 @@ function feedbackFormUrl(apiUrl: URL, feedbackType: FeedbackType = "not_good"): 
       formUrl.searchParams.set(key, value);
     }
   }
-  formUrl.searchParams.set("api_url", `${apiUrl.origin}${apiUrl.pathname}`);
+  formUrl.searchParams.set(
+    "api_url",
+    `${SUPABASE_URL.replace(/\/$/, "")}/functions/v1/role-feedback`,
+  );
   formUrl.searchParams.set("feedback_type", feedbackType);
   return formUrl.toString();
 }
