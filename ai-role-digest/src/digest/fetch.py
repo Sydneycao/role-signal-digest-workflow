@@ -30,6 +30,7 @@ import yaml
 from apify_client import ApifyClient
 
 from .models import Post
+from .quality import evaluate_post_quality
 
 log = logging.getLogger(__name__)
 
@@ -48,7 +49,7 @@ class ApifyCostControls:
     max_results_input_field: str = "maxPosts"
 
     @classmethod
-    def from_env(cls) -> "ApifyCostControls":
+    def from_env(cls) -> ApifyCostControls:
         return cls(
             max_results_per_query=_env_int("APIFY_MAX_RESULTS_PER_QUERY", 25),
             max_queries_per_run=_env_int("APIFY_MAX_QUERIES_PER_RUN", 2),
@@ -186,25 +187,6 @@ def _posted_limit_for_days(days: int, configured_default: str = "24h") -> str:
     return configured_default or "any"
 
 
-def _looks_like_hiring_signal(post: Post | None) -> bool:
-    if post is None:
-        return False
-    text = post.text.lower()
-    return any(
-        term in text
-        for term in (
-            "hiring",
-            "we're looking",
-            "we are looking",
-            "looking for",
-            "join our",
-            "open role",
-            "opening",
-            "apply",
-        )
-    )
-
-
 def _performance_from_rows(rows: dict[str, dict] | None) -> dict[str, QueryPerformance]:
     performance: dict[str, QueryPerformance] = {}
     for query, row in (rows or {}).items():
@@ -237,11 +219,7 @@ def select_queries_for_run(
         perf = performance.get(query)
         if perf is None or perf.posts_returned <= 0:
             return (0.2, -queries.index(query))
-        value = (
-            perf.high_fit_rate * 3.0
-            + perf.hiring_signal_rate
-            - perf.duplicate_rate * 1.5
-        )
+        value = perf.high_fit_rate * 3.0 + perf.hiring_signal_rate - perf.duplicate_rate * 1.5
         return (value, -queries.index(query))
 
     return sorted(queries, key=score, reverse=True)[:max_queries]
@@ -382,8 +360,11 @@ def fetch_posts_result(
                 continue
             seen_ids.add(post.id)
             query_stats.unique_posts += 1
-            if _looks_like_hiring_signal(post):
-                query_stats.valid_hiring_signals += 1
+            quality = evaluate_post_quality(post.text)
+            if not quality.accepted:
+                log.debug("Rejected post %s at fetch gate: %s", post.id, quality.reasons)
+                continue
+            query_stats.valid_hiring_signals += 1
             posts.append(post)
 
     log.info("fetch total: %d unique posts across %d queries", len(posts), len(run_plan))
@@ -410,8 +391,8 @@ def build_query_performance_rows(
         valid_hiring_signals = (
             int(previous.get("valid_hiring_signals") or 0) + stats.valid_hiring_signals
         )
-        high_fit_signals = (
-            int(previous.get("high_fit_signals") or 0) + high_fit_counts.get(query, 0)
+        high_fit_signals = int(previous.get("high_fit_signals") or 0) + high_fit_counts.get(
+            query, 0
         )
         duplicate_rate = 0.0
         if posts_returned:
@@ -428,4 +409,3 @@ def build_query_performance_rows(
             }
         )
     return rows
-    return posts

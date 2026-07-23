@@ -5,6 +5,7 @@ Asserts threshold filtering and that parsed_output maps correctly to ScoredPost.
 """
 
 import json
+import os
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -58,6 +59,7 @@ def test_score_and_filter_keeps_high_scores():
     with (
         patch("src.digest.score.anthropic.AsyncAnthropic", return_value=mock_ctx),
         patch("src.digest.score._rubric", return_value="You are a job scorer."),
+        patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}),
     ):
         result = score_and_filter(posts, mode="anthropic")
 
@@ -112,7 +114,10 @@ def test_prefilter_rejects_obvious_sales_role():
         Post(
             id="applied-ai",
             url="https://www.linkedin.com/posts/applied-ai",
-            text="We are hiring an applied AI engineer to build internal automations.",
+            text=(
+                "We are hiring an applied AI engineer to build internal automations "
+                "in San Francisco."
+            ),
             author_name="Founder",
             author_headline="Founder",
             author_url="https://www.linkedin.com/in/founder",
@@ -189,7 +194,7 @@ def test_prefilter_rejects_duplicate_posts_in_batch():
         Post(
             id="dupe",
             url="https://www.linkedin.com/posts/dupe",
-            text="We are hiring an Applied AI Engineer to build internal agents.",
+            text="We are hiring an Applied AI Engineer to build internal agents. Remote US.",
             author_name="Founder",
             author_headline="Founder",
             author_url="https://www.linkedin.com/in/founder",
@@ -197,7 +202,7 @@ def test_prefilter_rejects_duplicate_posts_in_batch():
         Post(
             id="dupe",
             url="https://www.linkedin.com/posts/dupe",
-            text="We are hiring an Applied AI Engineer to build internal agents.",
+            text="We are hiring an Applied AI Engineer to build internal agents. Remote US.",
             author_name="Founder",
             author_headline="Founder",
             author_url="https://www.linkedin.com/in/founder",
@@ -205,6 +210,80 @@ def test_prefilter_rejects_duplicate_posts_in_batch():
     ]
 
     assert [post.id for post in _prefilter_posts(posts)] == ["dupe"]
+
+
+def test_prefilter_rejects_hiring_keyword_without_employer_intent():
+    post = Post(
+        id="trends",
+        url="https://www.linkedin.com/posts/trends",
+        text="AI hiring trends and advice for applied AI teams in New York.",
+        author_name="Analyst",
+        author_headline="Researcher",
+        author_url="https://www.linkedin.com/in/analyst",
+    )
+
+    assert _prefilter_posts([post]) == []
+
+
+def test_prefilter_rejects_plain_remote_without_us_evidence():
+    post = Post(
+        id="remote-unknown",
+        url="https://www.linkedin.com/posts/remote-unknown",
+        text="We are hiring an Applied AI Engineer to build agents. Fully remote.",
+        author_name="Founder",
+        author_headline="Founder",
+        author_url="https://www.linkedin.com/in/founder",
+    )
+
+    assert _prefilter_posts([post]) == []
+
+
+def test_anthropic_mode_without_key_falls_back_to_rules(monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    post = Post(
+        id="fallback",
+        url="https://www.linkedin.com/posts/fallback",
+        text=(
+            "We are hiring an Applied AI Engineer to build internal agents and "
+            "workflow automation. Remote US."
+        ),
+        author_name="Founder",
+        author_headline="Founder",
+        author_url="https://www.linkedin.com/in/founder",
+    )
+
+    with patch("src.digest.score.anthropic.AsyncAnthropic") as client:
+        result = score_and_filter([post], mode="anthropic")
+
+    assert len(result) == 1
+    assert "Rule-based match" in result[0].reason
+    client.assert_not_called()
+
+
+def test_anthropic_api_failure_falls_back_per_post(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    post = Post(
+        id="api-fallback",
+        url="https://www.linkedin.com/posts/api-fallback",
+        text=(
+            "We are hiring an Applied AI Engineer to build internal agents and "
+            "workflow automation. Remote US."
+        ),
+        author_name="Founder",
+        author_headline="Founder",
+        author_url="https://www.linkedin.com/in/founder",
+    )
+    mock_client = AsyncMock()
+    mock_client.messages.parse = AsyncMock(side_effect=RuntimeError("temporary API error"))
+    mock_ctx = MagicMock()
+    mock_ctx.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_ctx.__aexit__ = AsyncMock(return_value=False)
+
+    with patch("src.digest.score.anthropic.AsyncAnthropic", return_value=mock_ctx):
+        result = score_and_filter([post], mode="anthropic")
+
+    assert len(result) == 1
+    assert "Rule-based match" in result[0].reason
 
 
 def test_default_model_is_haiku():
@@ -224,6 +303,7 @@ def test_score_and_filter_all_below_threshold():
     with (
         patch("src.digest.score.anthropic.AsyncAnthropic", return_value=mock_ctx),
         patch("src.digest.score._rubric", return_value="scorer"),
+        patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}),
     ):
         result = score_and_filter(posts, mode="anthropic")
 

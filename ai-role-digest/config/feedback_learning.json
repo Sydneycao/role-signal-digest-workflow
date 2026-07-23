@@ -3,7 +3,7 @@
   "blocked_locations": [],
   "blocked_seniority_keywords": [],
   "max_years_experience": 6,
-  "require_hiring_signal": false,
+  "require_hiring_signal": true,
   "positive_title_boost_keywords": [
     "AI Builder",
     "AI Automation Engineer",

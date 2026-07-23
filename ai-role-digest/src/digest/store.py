@@ -149,7 +149,10 @@ def load_feedback_filter_config() -> dict:
         )
     except APIError as exc:
         if exc.code == "PGRST205":
-            log.warning("Supabase table public.%s does not exist; using checked-in feedback config", FEEDBACK_CONFIG_TABLE)
+            log.warning(
+                "Supabase table public.%s does not exist; using checked-in feedback config",
+                FEEDBACK_CONFIG_TABLE,
+            )
             return {}
         _raise_clear_store_error(exc)
     rows = result.data or []

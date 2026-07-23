@@ -25,7 +25,9 @@ from .store import (
 )
 
 logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s", stream=sys.stderr,
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    stream=sys.stderr,
 )
 log = logging.getLogger(__name__)
 
@@ -126,7 +128,10 @@ def main() -> None:
         _upsert_query_performance_best_effort(performance_rows)
         log.info("No new posts; skipping scoring")
         if SEND_ON_EMPTY:
-            _send_or_log(f"AI Role Digest {date.today()} — no new posts", "<p>No new posts today.</p>")
+            _send_or_log(
+                f"AI Role Digest {date.today()} — no new posts",
+                "<p>No new posts today.</p>",
+            )
         return
 
     scored = score_and_filter(fresh, feedback_config=_load_feedback_config_or_empty())

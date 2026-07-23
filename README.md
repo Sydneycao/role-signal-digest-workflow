@@ -11,7 +11,9 @@ The included setup is tuned for applied AI, automation, and AI transformation
 roles. Fork it, change the searches, and make it yours.
 
 > **No Anthropic API key or credit is required.** The default workflow uses
-> local rule-based scoring and message templates.
+> local rule-based scoring and message templates. Anthropic remains an optional
+> semantic scorer; if it is selected without a working key, scoring falls back
+> to the same local rules instead of dropping results.
 
 ## What You Get
 
@@ -176,6 +178,8 @@ applied as new filters; a single click does not immediately rewrite the rules.
 
 ```text
 Search LinkedIn hiring posts
+  → require affirmative employer hiring language
+  → require explicit SF / NYC / Remote-US location evidence
   → remove posts already processed
   → score and filter the new results
   → draft outreach messages
@@ -187,6 +191,11 @@ Searches rotate based on recent performance, while hard limits keep each run
 small. With the current defaults, the workflow fetches at most 50 dataset items
 per run. Actual Apify charges depend on the actor's current pricing, so review
 your Apify usage dashboard after the first few runs.
+
+The quality gate is intentionally fail-closed. A post that merely discusses
+“hiring,” says only “remote,” or does not provide enough location evidence is
+excluded. This favors precision over recall and prevents the scorer—rules or
+Claude—from rescuing a non-hiring or non-US result.
 
 ## Run Locally (Optional)
 
@@ -228,6 +237,11 @@ Open **Actions → AI Role Digest** and inspect the latest run.
 Make the searches in `queries.yaml` more specific or less restrictive, then use
 the feedback links consistently for several runs. For a completely different
 role family, update the scoring terms as well as the search queries.
+
+The default location policy accepts San Francisco/Bay Area, New York City, and
+explicit US-remote language. Plain “remote” is deliberately not assumed to mean
+the United States. Update `src/digest/quality.py` if your target geography is
+different.
 
 ### I want to reprocess recent posts
 

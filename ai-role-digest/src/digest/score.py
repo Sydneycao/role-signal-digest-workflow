@@ -14,6 +14,7 @@ from pydantic import BaseModel
 
 from .feedback_learning import apply_feedback_boost, passes_feedback_hard_filters
 from .models import Post, ScoredPost
+from .quality import evaluate_post_quality
 
 log = logging.getLogger(__name__)
 
@@ -23,18 +24,6 @@ SCORE_THRESHOLD = int(os.environ.get("SCORE_THRESHOLD", "7"))
 MAX_CONCURRENT = 5
 RUBRIC_PATH = Path("config/rubric.md")
 
-HIRING_TERMS = (
-    "hiring",
-    "we're looking",
-    "we are looking",
-    "looking for",
-    "join our",
-    "opening",
-    "open role",
-    "role",
-    "position",
-    "apply",
-)
 TARGET_TERMS = (
     "ai enablement",
     "applied ai",
@@ -99,17 +88,6 @@ REJECT_TERMS = (
     "solutions engineer",
     "vice president",
 )
-NON_US_LOCATION_TERMS = (
-    "abu dhabi",
-    "canada",
-    "europe",
-    "india",
-    "london",
-    "mumbai",
-    "texas",
-    "uk",
-    "united kingdom",
-)
 TOO_SENIOR_TERMS = (
     "director",
     "principal",
@@ -166,18 +144,14 @@ def _looks_like_candidate_job_search(post_text: str) -> bool:
 
 def _base_hard_reject_reasons(post: Post) -> list[str]:
     post_text = post.text.lower()
-    context = f"{post.author_headline}\n{post.text}".lower()
     reasons: list[str] = []
 
     if _looks_like_candidate_job_search(post_text):
         reasons.append("not_hiring_post")
     if any(term in post_text for term in EXPIRED_POST_TERMS):
         reasons.append("expired_post")
-    if any(_matches_word(term, context) for term in NON_US_LOCATION_TERMS):
-        reasons.append("wrong_location")
-    if (
-        any(_matches_word(term, post_text) for term in TOO_SENIOR_TERMS)
-        or _requires_too_many_years(post_text)
+    if any(_matches_word(term, post_text) for term in TOO_SENIOR_TERMS) or _requires_too_many_years(
+        post_text
     ):
         reasons.append("too_senior")
     if any(term in post_text for term in REJECT_TERMS):
@@ -197,9 +171,7 @@ def _prefilter_posts(
     feedback_config = feedback_config or {}
     seen_keys: set[str] = set()
     for post in posts:
-        post_text = post.text.lower()
         context = f"{post.author_headline}\n{post.text}".lower()
-        has_hiring_signal = any(term in post_text for term in HIRING_TERMS)
         has_target_signal = any(term in context for term in TARGET_TERMS)
         key = _post_key(post)
         reject_reasons = []
@@ -207,9 +179,8 @@ def _prefilter_posts(
             reject_reasons.append("duplicate")
         else:
             seen_keys.add(key)
+        reject_reasons.extend(evaluate_post_quality(post.text).reasons)
         reject_reasons.extend(_base_hard_reject_reasons(post))
-        if not has_hiring_signal:
-            reject_reasons.append("not_hiring_post")
         if not has_target_signal:
             reject_reasons.append("not_relevant_domain")
         if not passes_feedback_hard_filters(post, feedback_config):
@@ -223,7 +194,10 @@ def _prefilter_posts(
 
 
 async def _score_one(
-    client: anthropic.AsyncAnthropic, sem: asyncio.Semaphore, post: Post, system: str,
+    client: anthropic.AsyncAnthropic,
+    sem: asyncio.Semaphore,
+    post: Post,
+    system: str,
 ) -> Optional[ScoredPost]:
     user_msg = (
         f"Author: {post.author_name}\n"
@@ -269,7 +243,7 @@ async def _score_all(posts: list[Post]) -> list[ScoredPost]:
     async with anthropic.AsyncAnthropic() as client:
         tasks = [_score_one(client, sem, p, system) for p in posts]
         results = await asyncio.gather(*tasks)
-    return [r for r in results if r is not None]
+    return [result or _rule_score(post) for post, result in zip(posts, results)]
 
 
 def _rule_score(post: Post) -> ScoredPost:
@@ -312,7 +286,11 @@ def score_and_filter(
     candidates = _prefilter_posts(posts, feedback_config=feedback_config)
     selected_mode = (mode or SCORING_MODE).lower()
     if selected_mode == "anthropic":
-        scored = asyncio.run(_score_all(candidates))
+        if os.environ.get("ANTHROPIC_API_KEY"):
+            scored = asyncio.run(_score_all(candidates))
+        else:
+            log.warning("ANTHROPIC_API_KEY is missing; falling back to rule scoring")
+            scored = [_rule_score(post) for post in candidates]
     elif selected_mode == "rules":
         scored = [_rule_score(post) for post in candidates]
     else:
