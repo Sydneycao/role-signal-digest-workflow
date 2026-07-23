@@ -1,7 +1,7 @@
 # Role Signal Digest
 
 A personal job-search digest that finds high-signal LinkedIn hiring posts and
-emails the best matches to you—with a short fit explanation and a ready-to-edit
+emails that best matches to you—with a short fit explanation and a ready-to-edit
 outreach message.
 
 **The idea:** spend less time refreshing job boards and more time talking to the
