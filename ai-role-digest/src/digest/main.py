@@ -25,7 +25,9 @@ from .store import (
 )
 
 logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s", stream=sys.stderr,
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    stream=sys.stderr,
 )
 log = logging.getLogger(__name__)
 
@@ -75,6 +77,12 @@ def _send_or_log(subject: str, html: str) -> None:
 
 def require_env(names: Iterable[str] = REQUIRED_ENV_VARS) -> None:
     missing = [name for name in names if not os.environ.get(name)]
+    if (
+        os.environ.get("SCORING_MODE", "rules").lower() == "gemini"
+        and not os.environ.get("GEMINI_API_KEY")
+        and "GEMINI_API_KEY" not in missing
+    ):
+        missing.append("GEMINI_API_KEY")
     if not any(os.environ.get(name) for name in SUPABASE_KEY_ENV_VARS):
         missing.append("SUPABASE_SERVICE_ROLE_KEY (recommended) or SUPABASE_KEY")
     if not missing:
@@ -126,10 +134,17 @@ def main() -> None:
         _upsert_query_performance_best_effort(performance_rows)
         log.info("No new posts; skipping scoring")
         if SEND_ON_EMPTY:
-            _send_or_log(f"AI Role Digest {date.today()} — no new posts", "<p>No new posts today.</p>")
+            _send_or_log(
+                f"AI Role Digest {date.today()} — no new posts",
+                "<p>No new posts today.</p>",
+            )
         return
 
-    scored = score_and_filter(fresh, feedback_config=_load_feedback_config_or_empty())
+    scored = score_and_filter(
+        fresh,
+        feedback_config=_load_feedback_config_or_empty(),
+        mode=os.environ.get("SCORING_MODE"),
+    )
     log.info("stage score: %d posts above threshold", len(scored))
     high_fit_counts: dict[str, int] = {}
     for scored_post in scored:
@@ -143,7 +158,7 @@ def main() -> None:
     )
     _upsert_query_performance_best_effort(performance_rows)
 
-    scored = draft_reach_out(scored)
+    scored = draft_reach_out(scored, mode=os.environ.get("OUTREACH_MODE"))
     log.info("stage outreach: %d posts drafted", len(scored))
 
     mark_seen(fresh)

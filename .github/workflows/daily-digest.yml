@@ -54,7 +54,11 @@ jobs:
         working-directory: ai-role-digest
         env:
           APIFY_TOKEN: ${{ secrets.APIFY_TOKEN }}
-          SCORING_MODE: rules
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          SCORING_MODE: gemini
+          LLM_MAX_POSTS_PER_RUN: "5"
+          GEMINI_MAX_OUTPUT_TOKENS: "256"
+          LLM_POST_CHAR_LIMIT: "3000"
           OUTREACH_MODE: template
           REPROCESS_SINCE: ${{ inputs.backfill_since }}
           APIFY_DAYS_LOOKBACK: ${{ inputs.backfill_since != '' && '30' || '7' }}

@@ -27,4 +27,5 @@ Reject or score 0–4 when any negative feedback category applies:
   or customer-facing solutions work rather than internal applied-AI building.
 - duplicate: same role/post repeated with no new hiring signal.
 
-Return ONLY JSON: {score, role_match, reason, poster_name, poster_url}
+Set role_match=true only when the post is a strong match for the target role.
+Return only the structured fields: score, role_match, and a concise reason.

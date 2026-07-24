@@ -3,8 +3,8 @@ defaults:
   sortBy: "date"
 
 queries:
-  - '("AI enablement" OR "applied AI") hiring'
-  - '"founder''s office" "applied AI"'
-  - '"AI transformation" (manager OR lead) hiring'
-  - '("GTM engineer" OR "AI automation") hiring'
-  - '"applied AI" (automation OR agents) hiring'
+  - '("AI enablement" OR "applied AI") ("we are hiring" OR "my team is hiring") ("Remote US" OR "New York" OR "San Francisco")'
+  - '"founder''s office" "applied AI" hiring ("United States" OR "New York" OR "San Francisco")'
+  - '"AI transformation" (manager OR lead) hiring ("Remote US" OR "New York" OR "San Francisco")'
+  - '("GTM engineer" OR "AI automation") hiring ("United States" OR "New York" OR "San Francisco")'
+  - '"applied AI" (automation OR agents) hiring ("Remote US" OR "New York" OR "San Francisco")'

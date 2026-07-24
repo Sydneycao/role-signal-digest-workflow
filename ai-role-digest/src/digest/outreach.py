@@ -9,20 +9,14 @@ Each draft includes:
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import os
-
-import anthropic
-from pydantic import BaseModel, Field
 
 from .models import OutreachDraft, ScoredPost
 
 log = logging.getLogger(__name__)
 
-CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL", "claude-haiku-4-5")
 OUTREACH_MODE = os.environ.get("OUTREACH_MODE", "template").lower()
-MAX_CONCURRENT = 5
 CONNECTION_REQUEST_LIMIT = 200
 DIRECT_MESSAGE_LIMIT = 8000
 
@@ -33,37 +27,6 @@ DEFAULT_CANDIDATE_BACKGROUND = (
     "improvements. I am especially interested in roles where I can ship useful "
     "systems end to end and learn quickly from real users."
 )
-
-SYSTEM_PROMPT = f"""\
-You draft concise LinkedIn outreach for a candidate applying to internal applied-AI,
-AI enablement, GTM engineering, and workflow automation roles.
-
-Write in a warm, direct, lightly witty voice. Keep the message specific to the role
-and the poster's hiring post. Do not overclaim. Preserve placeholders like [name]
-when the recipient's first name is unclear.
-
-Create both:
-1. connection_request: a LinkedIn connection request, maximum {CONNECTION_REQUEST_LIMIT}
-   characters including spaces.
-2. direct_message: a first-degree LinkedIn DM, maximum {DIRECT_MESSAGE_LIMIT}
-   characters, but aim for 900-1,400 characters.
-
-The direct message should follow this shape:
-- Hi [name],
-- mention the role or post directly
-- connect the candidate's background to relevant role needs
-- explain what stood out about the company or role
-- ask for a 15 minute chat
-- optional light joke about LinkedIn/InMail credits when it feels natural
-
-Return only structured output.
-"""
-
-
-class _DraftResult(BaseModel):
-    title: str = Field(description="Short title, e.g. 'AI Engineer role at Decagon'")
-    connection_request: str
-    direct_message: str
 
 
 def _candidate_background() -> str:
@@ -108,64 +71,6 @@ def _fallback_draft(scored: ScoredPost) -> OutreachDraft:
     )
 
 
-async def _draft_one(
-    client: anthropic.AsyncAnthropic,
-    sem: asyncio.Semaphore,
-    scored: ScoredPost,
-    candidate_background: str,
-) -> ScoredPost:
-    post = scored.post
-    user_msg = (
-        f"Candidate background:\n{candidate_background}\n\n"
-        f"Fit reason:\n{scored.reason}\n\n"
-        f"Poster name: {scored.poster_name or post.author_name}\n"
-        f"Poster headline: {post.author_headline}\n"
-        f"Poster profile: {scored.poster_url or post.author_url}\n"
-        f"Post URL: {post.url}\n\n"
-        f"Hiring post text:\n{post.text}"
-    )
-    async with sem:
-        for attempt in range(3):
-            try:
-                resp = await client.messages.parse(
-                    model=CLAUDE_MODEL,
-                    max_tokens=1400,
-                    system=SYSTEM_PROMPT,
-                    messages=[{"role": "user", "content": user_msg}],
-                    output_format=_DraftResult,
-                )
-                draft: _DraftResult | None = resp.parsed_output  # type: ignore[assignment]
-                if draft is None:
-                    log.warning("outreach parse returned None for post %s", post.id)
-                    return scored.model_copy(update={"outreach": _fallback_draft(scored)})
-
-                outreach = OutreachDraft(
-                    title=_truncate(draft.title, 120),
-                    connection_request=_truncate(
-                        draft.connection_request, CONNECTION_REQUEST_LIMIT
-                    ),
-                    direct_message=draft.direct_message[:DIRECT_MESSAGE_LIMIT],
-                )
-                return scored.model_copy(update={"outreach": outreach})
-            except anthropic.RateLimitError:
-                wait = 2 ** (attempt + 2)
-                log.warning("Rate limited while drafting, waiting %ds", wait)
-                await asyncio.sleep(wait)
-            except Exception as exc:
-                log.error("Outreach drafting error for post %s: %s", post.id, exc)
-                return scored.model_copy(update={"outreach": _fallback_draft(scored)})
-
-    return scored.model_copy(update={"outreach": _fallback_draft(scored)})
-
-
-async def _draft_all(scored: list[ScoredPost]) -> list[ScoredPost]:
-    sem = asyncio.Semaphore(MAX_CONCURRENT)
-    candidate_background = _candidate_background()
-    async with anthropic.AsyncAnthropic() as client:
-        tasks = [_draft_one(client, sem, item, candidate_background) for item in scored]
-        return await asyncio.gather(*tasks)
-
-
 def draft_reach_out(
     scored: list[ScoredPost],
     mode: str | None = None,
@@ -173,13 +78,8 @@ def draft_reach_out(
     if not scored:
         return []
     selected_mode = (mode or OUTREACH_MODE).lower()
-    if selected_mode == "anthropic":
-        drafted = asyncio.run(_draft_all(scored))
-    elif selected_mode == "template":
-        drafted = [
-            item.model_copy(update={"outreach": _fallback_draft(item)})
-            for item in scored
-        ]
+    if selected_mode == "template":
+        drafted = [item.model_copy(update={"outreach": _fallback_draft(item)}) for item in scored]
     else:
         raise ValueError(f"Unknown OUTREACH_MODE: {selected_mode}")
     log.info("outreach mode: %s", selected_mode)

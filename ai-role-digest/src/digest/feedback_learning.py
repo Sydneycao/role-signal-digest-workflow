@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from .models import Post, ScoredPost
+from .quality import has_affirmative_hiring_intent
 
 CONFIG_PATH = Path("config/feedback_learning.json")
 
@@ -14,7 +15,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "blocked_locations": [],
     "blocked_seniority_keywords": [],
     "max_years_experience": 6,
-    "require_hiring_signal": False,
+    "require_hiring_signal": True,
     "positive_title_boost_keywords": [],
     "positive_domain_boost_keywords": [],
     "positive_workflow_boost_keywords": [],
@@ -22,19 +23,6 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "positive_location_boost_terms": [],
     "acceptable_seniority_keywords": [],
 }
-
-HIRING_TERMS = (
-    "hiring",
-    "we're looking",
-    "we are looking",
-    "looking for",
-    "join our",
-    "opening",
-    "open role",
-    "role",
-    "position",
-    "apply",
-)
 
 
 def load_feedback_config(runtime_config: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -59,7 +47,7 @@ def hard_filter_reasons(post: Post, config: dict[str, Any]) -> list[str]:
     text = _text(post)
     reasons: list[str] = []
 
-    if cfg.get("require_hiring_signal", True) and not any(term in post.text.lower() for term in HIRING_TERMS):
+    if cfg.get("require_hiring_signal", True) and not has_affirmative_hiring_intent(post.text):
         reasons.append("Missing hiring signal")
 
     for term in cfg.get("blocked_locations", []):

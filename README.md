@@ -10,8 +10,11 @@ right people.
 The included setup is tuned for applied AI, automation, and AI transformation
 roles. Fork it, change the searches, and make it yours.
 
-> **No Anthropic API key or credit is required.** The default workflow uses
-> local rule-based scoring and message templates.
+> **The default workflow uses Gemini 3.5 Flash-Lite for semantic judgment.**
+> Create a Gemini API key in Google AI Studio; the model has a free API tier in
+> supported regions. To stay within conservative limits, free local rules first
+> reject and rank posts, then Gemini evaluates at most five posts per run with
+> strict input and output limits.
 
 ## What You Get
 
@@ -29,8 +32,8 @@ does not keep appearing in your inbox.
 ## Quick Start
 
 1. **Fork this repository** to your GitHub account.
-2. **Connect four services:** Apify, Supabase, an email account, and GitHub
-   Actions.
+2. **Connect five services:** Apify, Google AI Studio, Supabase, an email
+   account, and GitHub Actions.
 3. **Add your GitHub secrets** using the table below.
 4. **Edit your searches** in
    [`ai-role-digest/config/queries.yaml`](ai-role-digest/config/queries.yaml).
@@ -45,10 +48,14 @@ internal Python code to use the workflow.
 | --- | --- | --- |
 | [GitHub](https://github.com/) | Stores your fork and runs the daily workflow | GitHub Actions free allowance is usually enough for personal use |
 | [Apify](https://apify.com/) | Searches public LinkedIn posts | Usage-based; the workflow includes conservative result limits |
+| [Google AI Studio](https://aistudio.google.com/) | Uses Gemini Flash-Lite to judge the strongest candidates | The Gemini API has a free tier in supported regions |
 | [Supabase](https://supabase.com/) | Remembers seen posts and stores feedback | The free tier is usually enough for personal use |
 | An SMTP email account | Sends the digest | Gmail or another SMTP provider works |
 
-Anthropic is optional and is not used by the default GitHub workflow.
+The free Gemini API tier may use submitted data to improve Google's products.
+The scorer therefore sends only the public post text and author headline—not the
+author name or profile URL. Free-tier availability and limits depend on region
+and account status.
 
 ## Setup
 
@@ -107,6 +114,7 @@ In your fork, open **Settings → Secrets and variables → Actions**, then add:
 | Secret | Where to get it |
 | --- | --- |
 | `APIFY_TOKEN` | Apify → Settings → Integrations → API tokens |
+| `GEMINI_API_KEY` | Google AI Studio → Get API key |
 | `SUPABASE_URL` | Supabase → Project Settings → API → Project URL |
 | `SUPABASE_SERVICE_ROLE_KEY` | Supabase → Project Settings → API → service role key |
 | `SUPABASE_KEY` | Supabase anon/public key; optional fallback |
@@ -176,8 +184,12 @@ applied as new filters; a single click does not immediately rewrite the rules.
 
 ```text
 Search LinkedIn hiring posts
+  → require affirmative employer hiring language
+  → require explicit SF / NYC / Remote-US location evidence
   → remove posts already processed
-  → score and filter the new results
+  → pre-rank candidates with free local rules
+  → ask Gemini Flash-Lite to score at most five candidates
+  → keep only results above the fit threshold
   → draft outreach messages
   → send the email digest
   → collect feedback for future filtering
@@ -187,6 +199,29 @@ Searches rotate based on recent performance, while hard limits keep each run
 small. With the current defaults, the workflow fetches at most 50 dataset items
 per run. Actual Apify charges depend on the actor's current pricing, so review
 your Apify usage dashboard after the first few runs.
+
+The quality gate is intentionally fail-closed. A post that merely discusses
+“hiring,” says only “remote,” or does not provide enough location evidence is
+excluded. This favors precision over recall and prevents the scorer—rules or
+Gemini—from rescuing a non-hiring or non-US result.
+
+### Gemini Free-Tier Controls
+
+The default GitHub workflow sets:
+
+| Setting | Default | Purpose |
+| --- | ---: | --- |
+| `LLM_MAX_POSTS_PER_RUN` | `5` | Caps the number of Gemini requests per run |
+| `LLM_POST_CHAR_LIMIT` | `3000` | Truncates the post text sent to Gemini |
+| `GEMINI_MAX_OUTPUT_TOKENS` | `256` | Caps each scoring response |
+| `GEMINI_MODEL` | `gemini-3.5-flash-lite` | Uses Google's cost-efficient structured-output model |
+
+At one scheduled run per day, these limits are designed to fit comfortably
+within the Gemini free tier. This is not a permanent quota guarantee: Google can
+change model availability and rate limits. Check the Google AI Studio usage page
+after the first week. Set `SCORING_MODE=rules` to run without any external LLM;
+the workflow will use deterministic scoring with lower semantic judgment
+quality.
 
 ## Run Locally (Optional)
 
@@ -201,8 +236,10 @@ cp .env.example .env
 python -m src.digest.main
 ```
 
-Fill in the same service values in `.env`. You can leave
-`ANTHROPIC_API_KEY` empty when using the default `rules` and `template` modes.
+Fill in the same service values in `.env`. The default `SCORING_MODE=gemini`
+requires `GEMINI_API_KEY`. To run without Gemini, set `SCORING_MODE=rules` and
+leave the key empty. Outreach remains
+template-based, so it does not create additional LLM calls.
 
 Run the test suite with:
 
@@ -228,6 +265,18 @@ Open **Actions → AI Role Digest** and inspect the latest run.
 Make the searches in `queries.yaml` more specific or less restrictive, then use
 the feedback links consistently for several runs. For a completely different
 role family, update the scoring terms as well as the search queries.
+
+The default location policy accepts San Francisco/Bay Area, New York City, and
+explicit US-remote language. Plain “remote” is deliberately not assumed to mean
+the United States. Update `src/digest/quality.py` if your target geography is
+different.
+
+### The workflow says `GEMINI_API_KEY` is missing
+
+The default semantic scoring mode requires a Gemini API key in GitHub
+**Settings → Secrets and variables → Actions**. Create a key in Google AI
+Studio and add it as `GEMINI_API_KEY`, or explicitly change
+`SCORING_MODE` to `rules` in the workflow to run without LLM judgment.
 
 ### I want to reprocess recent posts
 

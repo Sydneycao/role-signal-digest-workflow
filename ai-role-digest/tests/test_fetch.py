@@ -16,7 +16,9 @@ def _mock_client(run: object) -> MagicMock:
         {
             "id": "linkedin-post-1",
             "linkedinUrl": "https://www.linkedin.com/posts/example",
-            "content": "We are hiring an applied AI engineer to build internal automations.",
+            "content": (
+                "We are hiring an applied AI engineer to build internal automations. Remote US."
+            ),
             "author": {
                 "name": "A. Founder",
                 "info": "Founder",
@@ -54,18 +56,12 @@ def test_fetch_posts_still_supports_apify_v2_run_dict(tmp_path):
 
 def test_fetch_posts_caps_queries_and_total_results(tmp_path, monkeypatch):
     config = tmp_path / "queries.yaml"
-    config.write_text(
-        "defaults: {}\n"
-        "queries:\n"
-        "  - q1\n"
-        "  - q2\n"
-        "  - q3\n"
-    )
+    config.write_text("defaults: {}\nqueries:\n  - q1\n  - q2\n  - q3\n")
     items = [
         {
             "id": f"post-{i}",
             "linkedinUrl": f"https://www.linkedin.com/posts/example-{i}",
-            "content": "We are hiring an applied AI engineer to build automations.",
+            "content": "We are hiring an applied AI engineer to build automations. Remote US.",
             "author": {"name": "A. Founder", "info": "Founder"},
         }
         for i in range(60)
@@ -83,8 +79,7 @@ def test_fetch_posts_caps_queries_and_total_results(tmp_path, monkeypatch):
 
     assert client.actor.return_value.call.call_count == 2
     run_inputs = [
-        call.kwargs["run_input"]
-        for call in client.actor.return_value.call.call_args_list
+        call.kwargs["run_input"] for call in client.actor.return_value.call.call_args_list
     ]
     assert [run_input["maxPosts"] for run_input in run_inputs] == [25, 25]
     assert len(result.posts) == 25
@@ -152,7 +147,10 @@ def test_normalize_redacts_email_and_phone(tmp_path):
         {
             "id": "post-1",
             "linkedinUrl": "https://www.linkedin.com/posts/example",
-            "content": "We are hiring. Email me at test@example.com or call 415-555-1212.",
+            "content": (
+                "We are hiring an applied AI engineer in San Francisco. "
+                "Email me at test@example.com or call 415-555-1212."
+            ),
             "author": {"name": "A. Founder", "info": "Founder"},
         }
     ]
@@ -162,6 +160,42 @@ def test_normalize_redacts_email_and_phone(tmp_path):
 
     assert "test@example.com" not in result.posts[0].text
     assert "415-555-1212" not in result.posts[0].text
+
+
+def test_fetch_gate_drops_non_hiring_and_unverified_location_posts(tmp_path):
+    config = tmp_path / "queries.yaml"
+    config.write_text("defaults: {}\nqueries:\n  - q1\n")
+    client = MagicMock()
+    client.actor.return_value.call.return_value = {"defaultDatasetId": "dataset"}
+    client.dataset.return_value.iterate_items.return_value = [
+        {
+            "id": "trends",
+            "linkedinUrl": "https://www.linkedin.com/posts/trends",
+            "content": "AI hiring trends in New York are changing quickly.",
+            "author": {"name": "Analyst", "info": "Researcher"},
+        },
+        {
+            "id": "unknown-remote",
+            "linkedinUrl": "https://www.linkedin.com/posts/unknown-remote",
+            "content": "We are hiring an Applied AI Engineer. Fully remote.",
+            "author": {"name": "Founder", "info": "Founder"},
+        },
+        {
+            "id": "valid",
+            "linkedinUrl": "https://www.linkedin.com/posts/valid",
+            "content": "We are hiring an Applied AI Engineer. Remote US.",
+            "author": {"name": "Founder", "info": "Founder"},
+        },
+    ]
+
+    with patch("src.digest.fetch.ApifyClient", return_value=client):
+        result = fetch_posts_result("token", config_path=str(config), performance_rows={})
+
+    assert len(result.posts) == 1
+    assert result.posts[0].text.endswith("Remote US.")
+    stats = next(iter(result.query_stats.values()))
+    assert stats.posts_returned == 3
+    assert stats.valid_hiring_signals == 1
 
 
 def test_build_query_performance_rows_accumulates_metrics():
