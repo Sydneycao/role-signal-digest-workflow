@@ -1,7 +1,7 @@
 """
 Tests for score.py.
-Mocks the Anthropic client so no real API calls are made.
-Asserts threshold filtering and that parsed_output maps correctly to ScoredPost.
+Mocks the Gemini client so no real API calls are made.
+Asserts threshold filtering and that structured output maps correctly to ScoredPost.
 """
 
 import json
@@ -15,7 +15,7 @@ from src.digest import main as digest_main
 from src.digest.main import require_env
 from src.digest.models import Post
 from src.digest.score import (
-    CLAUDE_MODEL,
+    GEMINI_MODEL,
     _prefilter_posts,
     _ScoreResult,
     score_and_filter,
@@ -29,39 +29,42 @@ def _load_posts() -> list[Post]:
     return [Post(**p) for p in data]
 
 
-def _mock_response(score: int, name: str, url: str) -> MagicMock:
+def _mock_response(score: int, role_match: bool | None = None) -> MagicMock:
     resp = MagicMock()
-    resp.parsed_output = _ScoreResult(
+    resp.output_text = _ScoreResult(
         score=score,
-        role_match=score >= 7,
+        role_match=score >= 7 if role_match is None else role_match,
         reason=f"Score {score} reason",
-        poster_name=name,
-        poster_url=url,
-    )
+    ).model_dump_json()
     return resp
+
+
+def _mock_client(response_or_side_effect):
+    async_client = AsyncMock()
+    async_client.interactions.create = AsyncMock(side_effect=response_or_side_effect)
+    async_context = MagicMock()
+    async_context.__aenter__ = AsyncMock(return_value=async_client)
+    async_context.__aexit__ = AsyncMock(return_value=False)
+    client = MagicMock()
+    client.aio = async_context
+    return client, async_client
 
 
 def test_score_and_filter_keeps_high_scores():
     posts = _load_posts()
 
     responses = [
-        _mock_response(9, "Alice Founder", "https://www.linkedin.com/in/alice-founder"),
-        _mock_response(8, "Carol Ops", "https://www.linkedin.com/in/carol-ops"),
+        _mock_response(9),
+        _mock_response(8),
     ]
-
-    mock_client = AsyncMock()
-    mock_client.messages.parse = AsyncMock(side_effect=responses)
-
-    mock_ctx = MagicMock()
-    mock_ctx.__aenter__ = AsyncMock(return_value=mock_client)
-    mock_ctx.__aexit__ = AsyncMock(return_value=False)
+    client, async_client = _mock_client(responses)
 
     with (
-        patch("src.digest.score.anthropic.AsyncAnthropic", return_value=mock_ctx),
+        patch("src.digest.score.genai.Client", return_value=client),
         patch("src.digest.score._rubric", return_value="You are a job scorer."),
-        patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}),
+        patch.dict(os.environ, {"GEMINI_API_KEY": "test-key"}),
     ):
-        result = score_and_filter(posts, mode="anthropic")
+        result = score_and_filter(posts, mode="gemini")
 
     assert len(result) == 2
     assert all(s.score >= 7 for s in result)
@@ -69,7 +72,7 @@ def test_score_and_filter_keeps_high_scores():
     assert "post_abc123" in scores
     assert "post_ghi789" in scores
     assert "post_def456" not in scores
-    assert mock_client.messages.parse.await_count == 2
+    assert async_client.interactions.create.await_count == 2
 
 
 def test_score_and_filter_empty_input():
@@ -77,7 +80,7 @@ def test_score_and_filter_empty_input():
     assert result == []
 
 
-def test_default_rule_scoring_needs_no_anthropic_call():
+def test_default_rule_scoring_needs_no_gemini_call():
     posts = [
         Post(
             id="rules",
@@ -92,7 +95,7 @@ def test_default_rule_scoring_needs_no_anthropic_call():
         )
     ]
 
-    with patch("src.digest.score.anthropic.AsyncAnthropic") as client:
+    with patch("src.digest.score.genai.Client") as client:
         result = score_and_filter(posts)
 
     assert len(result) == 1
@@ -238,8 +241,8 @@ def test_prefilter_rejects_plain_remote_without_us_evidence():
     assert _prefilter_posts([post]) == []
 
 
-def test_anthropic_mode_without_key_falls_back_to_rules(monkeypatch):
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+def test_gemini_mode_without_key_falls_back_to_rules(monkeypatch):
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     post = Post(
         id="fallback",
         url="https://www.linkedin.com/posts/fallback",
@@ -252,16 +255,16 @@ def test_anthropic_mode_without_key_falls_back_to_rules(monkeypatch):
         author_url="https://www.linkedin.com/in/founder",
     )
 
-    with patch("src.digest.score.anthropic.AsyncAnthropic") as client:
-        result = score_and_filter([post], mode="anthropic")
+    with patch("src.digest.score.genai.Client") as client:
+        result = score_and_filter([post], mode="gemini")
 
     assert len(result) == 1
     assert "Rule-based match" in result[0].reason
     client.assert_not_called()
 
 
-def test_anthropic_api_failure_falls_back_per_post(monkeypatch):
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+def test_gemini_api_failure_falls_back_per_post(monkeypatch):
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
     post = Post(
         id="api-fallback",
         url="https://www.linkedin.com/posts/api-fallback",
@@ -273,23 +276,19 @@ def test_anthropic_api_failure_falls_back_per_post(monkeypatch):
         author_headline="Founder",
         author_url="https://www.linkedin.com/in/founder",
     )
-    mock_client = AsyncMock()
-    mock_client.messages.parse = AsyncMock(side_effect=RuntimeError("temporary API error"))
-    mock_ctx = MagicMock()
-    mock_ctx.__aenter__ = AsyncMock(return_value=mock_client)
-    mock_ctx.__aexit__ = AsyncMock(return_value=False)
+    client, _ = _mock_client(RuntimeError("temporary API error"))
 
-    with patch("src.digest.score.anthropic.AsyncAnthropic", return_value=mock_ctx):
-        result = score_and_filter([post], mode="anthropic")
+    with patch("src.digest.score.genai.Client", return_value=client):
+        result = score_and_filter([post], mode="gemini")
 
     assert len(result) == 1
     assert "Rule-based match" in result[0].reason
 
 
-def test_anthropic_budget_gate_caps_posts_per_run(monkeypatch):
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+def test_gemini_budget_gate_caps_posts_per_run(monkeypatch):
+    monkeypatch.setenv("GEMINI_API_KEY", "test-key")
     monkeypatch.setenv("LLM_MAX_POSTS_PER_RUN", "3")
-    monkeypatch.setenv("ANTHROPIC_MAX_TOKENS", "128")
+    monkeypatch.setenv("GEMINI_MAX_OUTPUT_TOKENS", "128")
     posts = [
         Post(
             id=f"budget-{index}",
@@ -304,77 +303,85 @@ def test_anthropic_budget_gate_caps_posts_per_run(monkeypatch):
         )
         for index in range(7)
     ]
-    mock_client = AsyncMock()
-    mock_client.messages.parse = AsyncMock(
-        return_value=_mock_response(8, "Founder", "https://www.linkedin.com/in/founder")
-    )
-    mock_ctx = MagicMock()
-    mock_ctx.__aenter__ = AsyncMock(return_value=mock_client)
-    mock_ctx.__aexit__ = AsyncMock(return_value=False)
+    client, async_client = _mock_client([_mock_response(8)] * 3)
 
     with (
-        patch("src.digest.score.anthropic.AsyncAnthropic", return_value=mock_ctx),
+        patch("src.digest.score.genai.Client", return_value=client),
         patch("src.digest.score._rubric", return_value="scorer"),
     ):
-        result = score_and_filter(posts, mode="anthropic")
+        result = score_and_filter(posts, mode="gemini")
 
     assert [item.post.id for item in result] == ["budget-0", "budget-1", "budget-2"]
-    assert mock_client.messages.parse.await_count == 3
-    assert mock_client.messages.parse.call_args.kwargs["max_tokens"] == 128
+    assert async_client.interactions.create.await_count == 3
+    generation_config = async_client.interactions.create.call_args.kwargs["generation_config"]
+    assert generation_config["max_output_tokens"] == 128
+    assert generation_config["thinking_level"] == "minimal"
+    for call in async_client.interactions.create.call_args_list:
+        prompt = call.kwargs["input"]
+        assert "https://www.linkedin.com/in/founder" not in prompt
+        assert "Author: Founder" not in prompt
 
 
-def test_default_model_is_haiku():
-    assert CLAUDE_MODEL == "claude-haiku-4-5"
+def test_default_model_is_gemini_flash_lite():
+    assert GEMINI_MODEL == "gemini-3.5-flash-lite"
 
 
 def test_score_and_filter_all_below_threshold():
     posts = _load_posts()[:1]
-    mock_client = AsyncMock()
-    mock_client.messages.parse = AsyncMock(
-        return_value=_mock_response(2, "Alice", "https://linkedin.com/in/alice-founder")
-    )
-    mock_ctx = MagicMock()
-    mock_ctx.__aenter__ = AsyncMock(return_value=mock_client)
-    mock_ctx.__aexit__ = AsyncMock(return_value=False)
+    client, _ = _mock_client([_mock_response(2)])
 
     with (
-        patch("src.digest.score.anthropic.AsyncAnthropic", return_value=mock_ctx),
+        patch("src.digest.score.genai.Client", return_value=client),
         patch("src.digest.score._rubric", return_value="scorer"),
-        patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}),
+        patch.dict(os.environ, {"GEMINI_API_KEY": "test-key"}),
     ):
-        result = score_and_filter(posts, mode="anthropic")
+        result = score_and_filter(posts, mode="gemini")
+
+    assert result == []
+
+
+def test_gemini_role_mismatch_is_rejected_even_with_high_score():
+    posts = _load_posts()[:1]
+    client, _ = _mock_client([_mock_response(9, role_match=False)])
+
+    with (
+        patch("src.digest.score.genai.Client", return_value=client),
+        patch("src.digest.score._rubric", return_value="scorer"),
+        patch.dict(os.environ, {"GEMINI_API_KEY": "test-key"}),
+    ):
+        result = score_and_filter(posts, mode="gemini")
 
     assert result == []
 
 
 def test_require_env_reports_empty_github_secret(monkeypatch):
     monkeypatch.setenv("APIFY_TOKEN", "")
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "anthropic-key")
+    monkeypatch.setenv("GEMINI_API_KEY", "gemini-key")
 
     with pytest.raises(SystemExit) as exc:
-        require_env(("APIFY_TOKEN", "ANTHROPIC_API_KEY"))
+        require_env(("APIFY_TOKEN", "GEMINI_API_KEY"))
 
     message = str(exc.value)
     assert "APIFY_TOKEN" in message
-    assert "ANTHROPIC_API_KEY" not in message
+    assert "GEMINI_API_KEY" not in message
     assert "GitHub Actions repository secrets" in message
 
 
-def test_require_env_requires_anthropic_key_in_anthropic_mode(monkeypatch):
-    monkeypatch.setenv("SCORING_MODE", "anthropic")
+def test_require_env_requires_gemini_key_in_gemini_mode(monkeypatch):
+    monkeypatch.setenv("SCORING_MODE", "gemini")
     monkeypatch.setenv("SUPABASE_KEY", "supabase-key")
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
 
     with pytest.raises(SystemExit) as exc:
         require_env(())
 
-    assert "ANTHROPIC_API_KEY" in str(exc.value)
+    assert "GEMINI_API_KEY" in str(exc.value)
 
 
-def test_require_env_allows_rules_mode_without_anthropic_key(monkeypatch):
+def test_require_env_allows_rules_mode_without_gemini_key(monkeypatch):
     monkeypatch.setenv("SCORING_MODE", "rules")
     monkeypatch.setenv("SUPABASE_KEY", "supabase-key")
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
 
     require_env(())
 

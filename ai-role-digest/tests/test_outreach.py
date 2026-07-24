@@ -1,9 +1,6 @@
-from unittest.mock import AsyncMock, MagicMock, patch
-
 from src.digest.models import Post, ScoredPost
 from src.digest.outreach import (
     CONNECTION_REQUEST_LIMIT,
-    _DraftResult,
     _fallback_draft,
     draft_reach_out,
 )
@@ -31,46 +28,11 @@ def _scored_post() -> ScoredPost:
     )
 
 
-def _mock_response() -> MagicMock:
-    resp = MagicMock()
-    resp.parsed_output = _DraftResult(
-        title="AI Engineer role at Decagon",
-        connection_request="Hi Alice, " + ("this role feels aligned " * 20),
-        direct_message=(
-            "Hi Alice,\n\n"
-            "I came across your post on the Applied AI Engineer role and wanted "
-            "to reach out directly."
-        ),
-    )
-    return resp
-
-
-def test_draft_reach_out_maps_structured_output():
-    mock_client = AsyncMock()
-    mock_client.messages.parse = AsyncMock(return_value=_mock_response())
-
-    mock_ctx = MagicMock()
-    mock_ctx.__aenter__ = AsyncMock(return_value=mock_client)
-    mock_ctx.__aexit__ = AsyncMock(return_value=False)
-
-    with patch("src.digest.outreach.anthropic.AsyncAnthropic", return_value=mock_ctx):
-        result = draft_reach_out([_scored_post()], mode="anthropic")
-
-    assert len(result) == 1
-    assert result[0].outreach is not None
-    assert result[0].outreach.title == "AI Engineer role at Decagon"
-    assert len(result[0].outreach.connection_request) <= CONNECTION_REQUEST_LIMIT
-    assert "Applied AI Engineer" in result[0].outreach.direct_message
-    assert mock_client.messages.parse.await_count == 1
-
-
-def test_default_outreach_uses_template_without_anthropic():
-    with patch("src.digest.outreach.anthropic.AsyncAnthropic") as client:
-        result = draft_reach_out([_scored_post()])
+def test_default_outreach_uses_template_without_llm():
+    result = draft_reach_out([_scored_post()])
 
     assert result[0].outreach is not None
     assert "15 minutes" in result[0].outreach.direct_message
-    client.assert_not_called()
 
 
 def test_fallback_connection_request_stays_within_linkedin_limit():

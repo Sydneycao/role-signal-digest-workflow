@@ -1,4 +1,4 @@
-"""Score posts with free local rules or optional Claude structured output."""
+"""Score posts with free local rules or Gemini structured output."""
 
 from __future__ import annotations
 
@@ -9,8 +9,9 @@ import re
 from pathlib import Path
 from typing import Optional
 
-import anthropic
-from pydantic import BaseModel
+from google import genai
+from google.genai import errors as genai_errors
+from pydantic import BaseModel, Field
 
 from .feedback_learning import apply_feedback_boost, passes_feedback_hard_filters
 from .models import Post, ScoredPost
@@ -18,13 +19,13 @@ from .quality import evaluate_post_quality
 
 log = logging.getLogger(__name__)
 
-CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL", "claude-haiku-4-5")
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.5-flash-lite")
 SCORING_MODE = os.environ.get("SCORING_MODE", "rules").lower()
 SCORE_THRESHOLD = int(os.environ.get("SCORE_THRESHOLD", "7"))
 MAX_CONCURRENT = 5
 RUBRIC_PATH = Path("config/rubric.md")
 DEFAULT_LLM_MAX_POSTS_PER_RUN = 5
-DEFAULT_ANTHROPIC_MAX_TOKENS = 256
+DEFAULT_GEMINI_MAX_OUTPUT_TOKENS = 256
 DEFAULT_LLM_POST_CHAR_LIMIT = 3000
 
 TARGET_TERMS = (
@@ -119,11 +120,9 @@ EXPIRED_POST_TERMS = (
 
 
 class _ScoreResult(BaseModel):
-    score: int
+    score: int = Field(ge=0, le=10)
     role_match: bool
     reason: str
-    poster_name: str
-    poster_url: str
 
 
 def _rubric() -> str:
@@ -141,8 +140,11 @@ def _llm_max_posts_per_run() -> int:
     return _positive_env_int("LLM_MAX_POSTS_PER_RUN", DEFAULT_LLM_MAX_POSTS_PER_RUN)
 
 
-def _anthropic_max_tokens() -> int:
-    return _positive_env_int("ANTHROPIC_MAX_TOKENS", DEFAULT_ANTHROPIC_MAX_TOKENS)
+def _gemini_max_output_tokens() -> int:
+    return _positive_env_int(
+        "GEMINI_MAX_OUTPUT_TOKENS",
+        DEFAULT_GEMINI_MAX_OUTPUT_TOKENS,
+    )
 
 
 def _llm_post_char_limit() -> int:
@@ -216,45 +218,59 @@ def _prefilter_posts(
 
 
 async def _score_one(
-    client: anthropic.AsyncAnthropic,
+    client: genai.client.AsyncClient,
     sem: asyncio.Semaphore,
     post: Post,
     system: str,
 ) -> Optional[ScoredPost]:
     user_msg = (
-        f"Author: {post.author_name}\n"
-        f"Headline: {post.author_headline}\n"
-        f"Profile: {post.author_url}\n\n"
-        f"{post.text[: _llm_post_char_limit()]}"
+        f"{system}\n\n"
+        "Evaluate this public hiring post. Return only the requested structured "
+        "result.\n\n"
+        f"Author headline: {post.author_headline}\n\n"
+        f"Post text:\n{post.text[: _llm_post_char_limit()]}"
     )
     async with sem:
         for attempt in range(3):
             try:
-                resp = await client.messages.parse(
-                    model=os.environ.get("CLAUDE_MODEL", CLAUDE_MODEL),
-                    max_tokens=_anthropic_max_tokens(),
-                    system=system,
-                    messages=[{"role": "user", "content": user_msg}],
-                    output_format=_ScoreResult,
+                interaction = await client.interactions.create(
+                    model=os.environ.get("GEMINI_MODEL", GEMINI_MODEL),
+                    input=user_msg,
+                    response_format={
+                        "type": "text",
+                        "mime_type": "application/json",
+                        "schema": _ScoreResult.model_json_schema(),
+                    },
+                    generation_config={
+                        "max_output_tokens": _gemini_max_output_tokens(),
+                        "thinking_level": "minimal",
+                    },
                 )
-                r: _ScoreResult = resp.parsed_output  # type: ignore[assignment]
-                if r is None:
+                if not interaction.output_text:
                     log.warning("parse returned None for post %s", post.id)
                     return None
+                r = _ScoreResult.model_validate_json(interaction.output_text)
                 return ScoredPost(
                     post=post,
                     score=r.score,
                     role_match=r.role_match,
                     reason=r.reason,
-                    poster_name=r.poster_name or post.author_name,
-                    poster_url=r.poster_url or post.author_url,
+                    poster_name=post.author_name,
+                    poster_url=post.author_url,
                 )
-            except anthropic.RateLimitError:
+            except genai_errors.APIError as exc:
+                if exc.code != 429:
+                    log.error("Gemini scoring error for post %s: %s", post.id, exc)
+                    return None
                 wait = 2 ** (attempt + 2)
-                log.warning("Rate limited, waiting %ds (attempt %d)", wait, attempt + 1)
+                log.warning(
+                    "Gemini rate limited, waiting %ds (attempt %d)",
+                    wait,
+                    attempt + 1,
+                )
                 await asyncio.sleep(wait)
             except Exception as exc:
-                log.error("Scoring error for post %s: %s", post.id, exc)
+                log.error("Gemini scoring error for post %s: %s", post.id, exc)
                 return None
     return None
 
@@ -262,7 +278,7 @@ async def _score_one(
 async def _score_all(posts: list[Post]) -> list[ScoredPost]:
     system = _rubric()
     sem = asyncio.Semaphore(MAX_CONCURRENT)
-    async with anthropic.AsyncAnthropic() as client:
+    async with genai.Client(api_key=os.environ["GEMINI_API_KEY"]).aio as client:
         tasks = [_score_one(client, sem, p, system) for p in posts]
         results = await asyncio.gather(*tasks)
     return [result or _rule_score(post) for post, result in zip(posts, results)]
@@ -304,7 +320,7 @@ def _top_rule_candidates(
     limit: int,
     feedback_config: dict | None = None,
 ) -> list[Post]:
-    """Use free local scoring to select the small set that Claude evaluates."""
+    """Use free local scoring to select the small set that Gemini evaluates."""
     feedback_config = feedback_config or {}
     ranked = sorted(
         enumerate(posts),
@@ -324,28 +340,28 @@ def score_and_filter(
     feedback_config = feedback_config or {}
     candidates = _prefilter_posts(posts, feedback_config=feedback_config)
     selected_mode = (mode or os.environ.get("SCORING_MODE", SCORING_MODE)).lower()
-    if selected_mode == "anthropic":
-        if os.environ.get("ANTHROPIC_API_KEY"):
+    if selected_mode == "gemini":
+        if os.environ.get("GEMINI_API_KEY"):
             llm_candidates = _top_rule_candidates(
                 candidates,
                 _llm_max_posts_per_run(),
                 feedback_config,
             )
             log.info(
-                "Anthropic budget gate: evaluating %d of %d candidates",
+                "Gemini budget gate: evaluating %d of %d candidates",
                 len(llm_candidates),
                 len(candidates),
             )
             scored = asyncio.run(_score_all(llm_candidates))
         else:
-            log.warning("ANTHROPIC_API_KEY is missing; falling back to rule scoring")
+            log.warning("GEMINI_API_KEY is missing; falling back to rule scoring")
             scored = [_rule_score(post) for post in candidates]
     elif selected_mode == "rules":
         scored = [_rule_score(post) for post in candidates]
     else:
         raise ValueError(f"Unknown SCORING_MODE: {selected_mode}")
     scored = [apply_feedback_boost(s, feedback_config) for s in scored]
-    kept = [s for s in scored if s.score >= SCORE_THRESHOLD]
+    kept = [s for s in scored if s.score >= SCORE_THRESHOLD and s.role_match]
     log.info(
         "scoring (%s): %d posts → %d candidates → %d scored → %d above threshold %d",
         selected_mode,

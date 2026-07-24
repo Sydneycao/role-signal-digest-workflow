@@ -78,11 +78,11 @@ def _send_or_log(subject: str, html: str) -> None:
 def require_env(names: Iterable[str] = REQUIRED_ENV_VARS) -> None:
     missing = [name for name in names if not os.environ.get(name)]
     if (
-        os.environ.get("SCORING_MODE", "rules").lower() == "anthropic"
-        and not os.environ.get("ANTHROPIC_API_KEY")
-        and "ANTHROPIC_API_KEY" not in missing
+        os.environ.get("SCORING_MODE", "rules").lower() == "gemini"
+        and not os.environ.get("GEMINI_API_KEY")
+        and "GEMINI_API_KEY" not in missing
     ):
-        missing.append("ANTHROPIC_API_KEY")
+        missing.append("GEMINI_API_KEY")
     if not any(os.environ.get(name) for name in SUPABASE_KEY_ENV_VARS):
         missing.append("SUPABASE_SERVICE_ROLE_KEY (recommended) or SUPABASE_KEY")
     if not missing:
