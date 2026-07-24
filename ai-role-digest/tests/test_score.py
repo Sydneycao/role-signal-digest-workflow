@@ -286,6 +286,43 @@ def test_anthropic_api_failure_falls_back_per_post(monkeypatch):
     assert "Rule-based match" in result[0].reason
 
 
+def test_anthropic_budget_gate_caps_posts_per_run(monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setenv("LLM_MAX_POSTS_PER_RUN", "3")
+    monkeypatch.setenv("ANTHROPIC_MAX_TOKENS", "128")
+    posts = [
+        Post(
+            id=f"budget-{index}",
+            url=f"https://www.linkedin.com/posts/budget-{index}",
+            text=(
+                "We are hiring an Applied AI Engineer to build internal agents and "
+                f"workflow automation. Remote US. Opening {index}."
+            ),
+            author_name="Founder",
+            author_headline="Founder",
+            author_url="https://www.linkedin.com/in/founder",
+        )
+        for index in range(7)
+    ]
+    mock_client = AsyncMock()
+    mock_client.messages.parse = AsyncMock(
+        return_value=_mock_response(8, "Founder", "https://www.linkedin.com/in/founder")
+    )
+    mock_ctx = MagicMock()
+    mock_ctx.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_ctx.__aexit__ = AsyncMock(return_value=False)
+
+    with (
+        patch("src.digest.score.anthropic.AsyncAnthropic", return_value=mock_ctx),
+        patch("src.digest.score._rubric", return_value="scorer"),
+    ):
+        result = score_and_filter(posts, mode="anthropic")
+
+    assert [item.post.id for item in result] == ["budget-0", "budget-1", "budget-2"]
+    assert mock_client.messages.parse.await_count == 3
+    assert mock_client.messages.parse.call_args.kwargs["max_tokens"] == 128
+
+
 def test_default_model_is_haiku():
     assert CLAUDE_MODEL == "claude-haiku-4-5"
 
@@ -321,6 +358,25 @@ def test_require_env_reports_empty_github_secret(monkeypatch):
     assert "APIFY_TOKEN" in message
     assert "ANTHROPIC_API_KEY" not in message
     assert "GitHub Actions repository secrets" in message
+
+
+def test_require_env_requires_anthropic_key_in_anthropic_mode(monkeypatch):
+    monkeypatch.setenv("SCORING_MODE", "anthropic")
+    monkeypatch.setenv("SUPABASE_KEY", "supabase-key")
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+
+    with pytest.raises(SystemExit) as exc:
+        require_env(())
+
+    assert "ANTHROPIC_API_KEY" in str(exc.value)
+
+
+def test_require_env_allows_rules_mode_without_anthropic_key(monkeypatch):
+    monkeypatch.setenv("SCORING_MODE", "rules")
+    monkeypatch.setenv("SUPABASE_KEY", "supabase-key")
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+
+    require_env(())
 
 
 def test_email_dry_run_does_not_send(monkeypatch):

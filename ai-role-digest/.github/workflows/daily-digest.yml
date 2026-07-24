@@ -23,7 +23,11 @@ jobs:
         working-directory: ai-role-digest
         env:
           APIFY_TOKEN: ${{ secrets.APIFY_TOKEN }}
-          SCORING_MODE: rules
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          SCORING_MODE: anthropic
+          LLM_MAX_POSTS_PER_RUN: "5"
+          ANTHROPIC_MAX_TOKENS: "256"
+          LLM_POST_CHAR_LIMIT: "3000"
           OUTREACH_MODE: template
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

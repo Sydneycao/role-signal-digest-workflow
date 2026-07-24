@@ -23,6 +23,9 @@ SCORING_MODE = os.environ.get("SCORING_MODE", "rules").lower()
 SCORE_THRESHOLD = int(os.environ.get("SCORE_THRESHOLD", "7"))
 MAX_CONCURRENT = 5
 RUBRIC_PATH = Path("config/rubric.md")
+DEFAULT_LLM_MAX_POSTS_PER_RUN = 5
+DEFAULT_ANTHROPIC_MAX_TOKENS = 256
+DEFAULT_LLM_POST_CHAR_LIMIT = 3000
 
 TARGET_TERMS = (
     "ai enablement",
@@ -127,6 +130,25 @@ def _rubric() -> str:
     return RUBRIC_PATH.read_text()
 
 
+def _positive_env_int(name: str, default: int) -> int:
+    try:
+        return max(1, int(os.environ.get(name, str(default))))
+    except ValueError:
+        return default
+
+
+def _llm_max_posts_per_run() -> int:
+    return _positive_env_int("LLM_MAX_POSTS_PER_RUN", DEFAULT_LLM_MAX_POSTS_PER_RUN)
+
+
+def _anthropic_max_tokens() -> int:
+    return _positive_env_int("ANTHROPIC_MAX_TOKENS", DEFAULT_ANTHROPIC_MAX_TOKENS)
+
+
+def _llm_post_char_limit() -> int:
+    return _positive_env_int("LLM_POST_CHAR_LIMIT", DEFAULT_LLM_POST_CHAR_LIMIT)
+
+
 def _matches_word(term: str, text: str) -> bool:
     return re.search(r"\b" + re.escape(term.lower()) + r"\b", text) is not None
 
@@ -203,14 +225,14 @@ async def _score_one(
         f"Author: {post.author_name}\n"
         f"Headline: {post.author_headline}\n"
         f"Profile: {post.author_url}\n\n"
-        f"{post.text}"
+        f"{post.text[: _llm_post_char_limit()]}"
     )
     async with sem:
         for attempt in range(3):
             try:
                 resp = await client.messages.parse(
-                    model=CLAUDE_MODEL,
-                    max_tokens=512,
+                    model=os.environ.get("CLAUDE_MODEL", CLAUDE_MODEL),
+                    max_tokens=_anthropic_max_tokens(),
                     system=system,
                     messages=[{"role": "user", "content": user_msg}],
                     output_format=_ScoreResult,
@@ -277,6 +299,23 @@ def _rule_score(post: Post) -> ScoredPost:
     )
 
 
+def _top_rule_candidates(
+    posts: list[Post],
+    limit: int,
+    feedback_config: dict | None = None,
+) -> list[Post]:
+    """Use free local scoring to select the small set that Claude evaluates."""
+    feedback_config = feedback_config or {}
+    ranked = sorted(
+        enumerate(posts),
+        key=lambda item: (
+            -apply_feedback_boost(_rule_score(item[1]), feedback_config).score,
+            item[0],
+        ),
+    )
+    return [post for _, post in ranked[:limit]]
+
+
 def score_and_filter(
     posts: list[Post],
     feedback_config: dict | None = None,
@@ -284,10 +323,20 @@ def score_and_filter(
 ) -> list[ScoredPost]:
     feedback_config = feedback_config or {}
     candidates = _prefilter_posts(posts, feedback_config=feedback_config)
-    selected_mode = (mode or SCORING_MODE).lower()
+    selected_mode = (mode or os.environ.get("SCORING_MODE", SCORING_MODE)).lower()
     if selected_mode == "anthropic":
         if os.environ.get("ANTHROPIC_API_KEY"):
-            scored = asyncio.run(_score_all(candidates))
+            llm_candidates = _top_rule_candidates(
+                candidates,
+                _llm_max_posts_per_run(),
+                feedback_config,
+            )
+            log.info(
+                "Anthropic budget gate: evaluating %d of %d candidates",
+                len(llm_candidates),
+                len(candidates),
+            )
+            scored = asyncio.run(_score_all(llm_candidates))
         else:
             log.warning("ANTHROPIC_API_KEY is missing; falling back to rule scoring")
             scored = [_rule_score(post) for post in candidates]

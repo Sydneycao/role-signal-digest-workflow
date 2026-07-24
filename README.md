@@ -10,10 +10,12 @@ right people.
 The included setup is tuned for applied AI, automation, and AI transformation
 roles. Fork it, change the searches, and make it yours.
 
-> **No Anthropic API key or credit is required.** The default workflow uses
-> local rule-based scoring and message templates. Anthropic remains an optional
-> semantic scorer; if it is selected without a working key, scoring falls back
-> to the same local rules instead of dropping results.
+> **The default workflow uses Claude Haiku 4.5 for semantic judgment.** An
+> Anthropic API key and prepaid API credit are required. Claude.ai subscriptions
+> do not include API usage, and Anthropic does not provide a standard recurring
+> monthly API allowance. To keep cost low, free local rules first reject and
+> rank posts; Claude evaluates at most five posts per run with strict token
+> limits.
 
 ## What You Get
 
@@ -31,8 +33,8 @@ does not keep appearing in your inbox.
 ## Quick Start
 
 1. **Fork this repository** to your GitHub account.
-2. **Connect four services:** Apify, Supabase, an email account, and GitHub
-   Actions.
+2. **Connect five services:** Apify, Anthropic, Supabase, an email account, and
+   GitHub Actions.
 3. **Add your GitHub secrets** using the table below.
 4. **Edit your searches** in
    [`ai-role-digest/config/queries.yaml`](ai-role-digest/config/queries.yaml).
@@ -47,10 +49,14 @@ internal Python code to use the workflow.
 | --- | --- | --- |
 | [GitHub](https://github.com/) | Stores your fork and runs the daily workflow | GitHub Actions free allowance is usually enough for personal use |
 | [Apify](https://apify.com/) | Searches public LinkedIn posts | Usage-based; the workflow includes conservative result limits |
+| [Anthropic Console](https://console.anthropic.com/) | Uses Claude Haiku to judge the strongest candidates | Prepaid API usage; the default limits are designed to keep typical usage below $1/month |
 | [Supabase](https://supabase.com/) | Remembers seen posts and stores feedback | The free tier is usually enough for personal use |
 | An SMTP email account | Sends the digest | Gmail or another SMTP provider works |
 
-Anthropic is optional and is not used by the default GitHub workflow.
+Anthropic API billing is separate from Claude.ai Free, Pro, Max, Team, and
+Enterprise plans. Add a small prepaid balance and disable automatic credit
+reload if you want a hard spending boundary. Actual cost depends on post length,
+retries, manual reruns, and future model pricing.
 
 ## Setup
 
@@ -109,6 +115,7 @@ In your fork, open **Settings → Secrets and variables → Actions**, then add:
 | Secret | Where to get it |
 | --- | --- |
 | `APIFY_TOKEN` | Apify → Settings → Integrations → API tokens |
+| `ANTHROPIC_API_KEY` | Anthropic Console → Settings → API keys |
 | `SUPABASE_URL` | Supabase → Project Settings → API → Project URL |
 | `SUPABASE_SERVICE_ROLE_KEY` | Supabase → Project Settings → API → service role key |
 | `SUPABASE_KEY` | Supabase anon/public key; optional fallback |
@@ -181,7 +188,9 @@ Search LinkedIn hiring posts
   → require affirmative employer hiring language
   → require explicit SF / NYC / Remote-US location evidence
   → remove posts already processed
-  → score and filter the new results
+  → pre-rank candidates with free local rules
+  → ask Claude Haiku to score at most five candidates
+  → keep only results above the fit threshold
   → draft outreach messages
   → send the email digest
   → collect feedback for future filtering
@@ -197,6 +206,24 @@ The quality gate is intentionally fail-closed. A post that merely discusses
 excluded. This favors precision over recall and prevents the scorer—rules or
 Claude—from rescuing a non-hiring or non-US result.
 
+### Claude Cost Controls
+
+The default GitHub workflow sets:
+
+| Setting | Default | Purpose |
+| --- | ---: | --- |
+| `LLM_MAX_POSTS_PER_RUN` | `5` | Caps the number of Claude requests per run |
+| `LLM_POST_CHAR_LIMIT` | `3000` | Truncates the post text sent to Claude |
+| `ANTHROPIC_MAX_TOKENS` | `256` | Caps each scoring response |
+| `CLAUDE_MODEL` | `claude-haiku-4-5` | Uses Anthropic's lowest-cost current Claude model |
+
+At one scheduled run per day, these limits are designed for typical Claude API
+usage below $1/month at the pricing current when this README was updated. This
+is an estimate, not a free tier or billing guarantee. Check the Anthropic usage
+page after the first week. If you need zero Claude API spend, set
+`SCORING_MODE=rules`; the workflow will use deterministic scoring with lower
+semantic judgment quality.
+
 ## Run Locally (Optional)
 
 GitHub Actions is the easiest way to use the project. For local development:
@@ -210,8 +237,10 @@ cp .env.example .env
 python -m src.digest.main
 ```
 
-Fill in the same service values in `.env`. You can leave
-`ANTHROPIC_API_KEY` empty when using the default `rules` and `template` modes.
+Fill in the same service values in `.env`. The default
+`SCORING_MODE=anthropic` requires `ANTHROPIC_API_KEY`. To run without Claude,
+set `SCORING_MODE=rules` and leave the key empty. Outreach remains
+template-based, so it does not create additional LLM calls.
 
 Run the test suite with:
 
@@ -242,6 +271,13 @@ The default location policy accepts San Francisco/Bay Area, New York City, and
 explicit US-remote language. Plain “remote” is deliberately not assumed to mean
 the United States. Update `src/digest/quality.py` if your target geography is
 different.
+
+### The workflow says `ANTHROPIC_API_KEY` is missing
+
+The default semantic scoring mode requires a Claude API key in GitHub
+**Settings → Secrets and variables → Actions**. A Claude.ai subscription is not
+an API credential. Add `ANTHROPIC_API_KEY`, or explicitly change
+`SCORING_MODE` to `rules` in the workflow to run without LLM judgment.
 
 ### I want to reprocess recent posts
 
